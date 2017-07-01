@@ -1,0 +1,88 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title> capnp-rpc-rust now uses futures-rs </title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<link rel="stylesheet" href="/capnproto-rust/css/main.css" type="text/css" />
+<link rel="stylesheet" href="/capnproto-rust/css/syntax.css" type="text/css" />
+<link rel="shortcut icon" href="/capnproto-rust/favicon.png">
+</head>
+<body>
+<p>
+04 Jan 2017
+<p>
+
+<p>The concurrency story of
+<a href="https://github.com/dwrensha/capnp-rpc-rust">capnp-rpc-rust</a>
+gets a major update in today’s version 0.8 release.
+Previously, the remote procedure call system was built
+on top of <a href="https://github.com/dwrensha/gj">GJ</a>,
+an event loop framework designed specifically for Cap’n Proto,
+described in some of my <a href="/capnproto-rust/2015/05/25/asynchronous-io-with-promises.html">previous</a>
+<a href="/capnproto-rust/2016/01/11/async-rpc.html">posts</a>.
+The new version drops GJ in favor of
+<a href="https://github.com/alexcrichton/futures-rs">futures-rs</a>,
+a library that is quickly becoming the standard
+foundation for asynchronous programming in Rust.</p>
+
+<p>At the level of types, the update is fairly
+straightforward.
+The main asynchronous building block in GJ is the struct
+<code class="highlighter-rouge">Promise&lt;T, E&gt;</code>, representing a <code class="highlighter-rouge">Result&lt;T, E&gt;</code> that might not
+be ready yet. To migrate to futures-rs, each <code class="highlighter-rouge">gj::Promise&lt;T,E&gt;</code> can be translated into
+a <code class="highlighter-rouge">Box&lt;futures::Future&lt;Item=T,Error=E&gt;&gt;</code>,
+and the high-level structure of a program usually does not need to change.</p>
+
+<p>Many nice properties derive from the fact that <code class="highlighter-rouge">Future</code> is a <em>trait</em>, not a struct,
+and does not need to be put in a <code class="highlighter-rouge">Box</code>.
+Concrete types implementing <code class="highlighter-rouge">Future</code> can be used in generics,
+making it possible for combinators like <code class="highlighter-rouge">.then()</code> and <code class="highlighter-rouge">.join()</code>
+to avoid heap allocations
+and to avoid losing type information.
+In particular, the typechecker can know at compile time
+whether it is safe to send a future between threads!</p>
+
+<p>The Rust community has a growing ecosystem of libraries based on
+futures-rs, and today’s capnp-rpc-rust release
+should work well with all of them.
+For example, a Cap’n Proto method could invoke
+<a href="https://crates.io/crates/futures-cpupool">futures-cpupool</a>
+to distribute computation-heavy work among a pool of worker threads,
+or it could use one of the emerging asynchronous database drivers
+to make queries on a remote database, or it could do,
+well, anything that can be expressed in terms of the <code class="highlighter-rouge">Future</code> trait.
+As a quick demonstration, I have implemented a
+simple <a href="https://github.com/dwrensha/capnp-rpc-rust/tree/master/examples/http-requests">example</a>
+that uses <a href="https://github.com/tokio-rs/tokio-curl">tokio-curl</a>
+to make asynchronous HTTP requests.</p>
+
+<p>There are many exciting possibilities to explore.
+If any of this sounds interesting to you, I encourage you to get involved!
+Join me for discussion at #sandstorm on freenode IRC or at the
+<a href="https://gitter.im/tokio-rs/tokio">tokio gitter</a>.</p>
+
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+
+<div>
+ <a href="https://www.github.com/dwrensha/capnproto-rust">
+   capnproto-rust on github
+ </a>
+</div>
+
+<div>
+ <a href="/capnproto-rust/index.html">
+   more posts
+ </a>
+</div>
+
+<a href="/capnproto-rust/feed.xml">
+<img src="/capnproto-rust/assets/rss.png"
+     width="14"/>
+</a>
+
+
+</body>

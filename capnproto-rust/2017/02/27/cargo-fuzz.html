@@ -1,0 +1,101 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title> cargo-fuzz findings </title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<link rel="stylesheet" href="/capnproto-rust/css/main.css" type="text/css" />
+<link rel="stylesheet" href="/capnproto-rust/css/syntax.css" type="text/css" />
+<link rel="shortcut icon" href="/capnproto-rust/favicon.png">
+</head>
+<body>
+<p>
+27 Feb 2017
+<p>
+
+<p>After the
+<a href="https://www.reddit.com/r/rust/comments/5va0mi/cargofuzz_an_easy_way_to_fuzz_your_crates/">announcement</a>
+of <a href="https://github.com/rust-fuzz/cargo-fuzz">cargo-fuzz</a> last week,
+I decided to try using it to search for bugs in capnproto-rust.
+For a long time I had been meaning to try out
+<a href="https://github.com/rust-fuzz/afl.rs">afl.rs</a>,
+a similar fuzz-testing tool about which I had heard lots of good things,
+but its nontrivial setup costs were enough to deter me.
+Fortunately, cargo-fuzz is very simple and fast to get running.
+It quickly found several issues in capnproto-rust, all of which have been fixed
+in the <a href="https://crates.io/crates/capnp">latest release</a>.</p>
+
+<h4 id="panic-on-invalid-input-fixed-in-6f9bbdcahttpsgithubcomdwrenshacapnproto-rustcommit6f9bbdca5f77146f6f1ff0297295c3fded3a01a6">Panic on invalid input (fixed in <a href="https://github.com/dwrensha/capnproto-rust/commit/6f9bbdca5f77146f6f1ff0297295c3fded3a01a6">6f9bbdca</a>)</h4>
+
+<p>The original
+<a href="https://github.com/sandstorm-io/capnproto/blob/01f6d5e4ff05fcd67e968b50120dba3fbbb38afb/c%2B%2B/src/capnp/layout.c%2B%2B#L1875">C++ code</a>
+suggests that the branches for dealing with <code class="highlighter-rouge">Far</code> pointers in
+<code class="highlighter-rouge">total_size()</code> and <code class="highlighter-rouge">copy_pointer()</code> are unreachable,
+so I had translated them into panics.
+It turns out that these branches can in fact be reached
+due to invalid input, rather than any bugs in the code.
+In the C++ version, this means that a somewhat
+misleading exception will be thrown;
+I’ve submitted <a href="https://github.com/sandstorm-io/capnproto/pull/421">a pull request</a>
+to make the exception more accurate.
+The problem is more serious in the Rust version,
+because Rust makes a sharp distinction between panics and error <code class="highlighter-rouge">Result</code>s.</p>
+
+<h4 id="cpu-amplifications-fixed-in-e89f162bhttpsgithubcomdwrenshacapnproto-rustcommite89f162b3545096aec77a62157463437d6959ac5-66def413httpsgithubcomdwrenshacapnproto-rustcommit66def4134e8b4fbc2459d77e72717e445175879c">CPU amplifications (fixed in <a href="https://github.com/dwrensha/capnproto-rust/commit/e89f162b3545096aec77a62157463437d6959ac5">e89f162b</a>, <a href="https://github.com/dwrensha/capnproto-rust/commit/66def4134e8b4fbc2459d77e72717e445175879c">66def413</a>)</h4>
+
+<p>One way to attempt to mount a denial-of-service attack on a
+consumer of Cap’n Proto messages is to carefully craft messages
+that could trick the consumer into doing lots of work. For example,
+if you send a cyclic structure, the consumer might go into an infinite loop
+trying to read it.
+To protect against such attacks, message readers in capnproto-rust
+have an adjustable traversal limit, indicating how many bytes
+are allowed to be read before an error is returned.
+Reads of zero-sized structs should also count against
+this limit, as was observed in these
+<a href="https://github.com/sandstorm-io/capnproto/blob/f29bb0dafbe081960f9b508528138d5f99f83b7b/security-advisories/2015-03-02-2-all-cpu-amplification.md">bug</a>
+<a href="https://github.com/sandstorm-io/capnproto/blob/f29bb0dafbe081960f9b508528138d5f99f83b7b/security-advisories/2015-03-05-0-c%2B%2B-addl-cpu-amplification.md">reports</a>
+for capnproto-c++ in 2015.
+I thought that I had completely updated capnproto-rust with
+fixes for this problem, but apparently I had missed two cases. :-(</p>
+
+<h4 id="panics-on-todos-fixed-in-4c8d5f3httpsgithubcomdwrenshacapnproto-rustcommit4c8d5f369335dc6deef6f9d1e818da5d47e2a36d-77dc713bhttpsgithubcomdwrenshacapnproto-rustcommit77dc713b8486bf61fe657cb82f5d6cb351e76306-10f37267httpsgithubcomdwrenshacapnproto-rustcommit10f37267e3c94d861e946f91dada61fa4dc085ee-3521d4e2httpsgithubcomdwrenshacapnproto-rustcommit3521d4e25877d038154350d9ea5621779724ca5c">Panics on TODOs (fixed in <a href="https://github.com/dwrensha/capnproto-rust/commit/4c8d5f369335dc6deef6f9d1e818da5d47e2a36d">4c8d5f3</a>, <a href="https://github.com/dwrensha/capnproto-rust/commit/77dc713b8486bf61fe657cb82f5d6cb351e76306">77dc713b</a>, <a href="https://github.com/dwrensha/capnproto-rust/commit/10f37267e3c94d861e946f91dada61fa4dc085ee">10f37267</a>, <a href="https://github.com/dwrensha/capnproto-rust/commit/3521d4e25877d038154350d9ea5621779724ca5c">3521d4e2</a>)</h4>
+
+<p>The fuzzer managed to find some explicit panics in capnproto-rust
+that were filling in holes of unimplemented functionality.
+I had forgotten that such holes still existed.
+After cargo-fuzz found these,
+I went ahead and implemented the functionality.
+At first I was too lazy to write a test case to cover the new code,
+but before going to bed that night I did
+set up cargo-fuzz to run on it.
+By the next morning, cargo-fuzz had found a memory safety issue
+in the new code! Even better, the test case it generated
+was rather clever and gave me a good starting point for writing the
+<a href="https://github.com/dwrensha/capnpc-rust/blob/4bd89ab2fccc1386b3b608a663e4adfbb199d695/test/test.rs#L772-L820">test</a>
+that I later added to the capnproto-rust test suite to cover the new functionality.</p>
+
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+
+<div>
+ <a href="https://www.github.com/dwrensha/capnproto-rust">
+   capnproto-rust on github
+ </a>
+</div>
+
+<div>
+ <a href="/capnproto-rust/index.html">
+   more posts
+ </a>
+</div>
+
+<a href="/capnproto-rust/feed.xml">
+<img src="/capnproto-rust/assets/rss.png"
+     width="14"/>
+</a>
+
+
+</body>

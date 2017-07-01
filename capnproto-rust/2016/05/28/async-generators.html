@@ -1,0 +1,206 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title> async generators </title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<link rel="stylesheet" href="/capnproto-rust/css/main.css" type="text/css" />
+<link rel="stylesheet" href="/capnproto-rust/css/syntax.css" type="text/css" />
+<link rel="shortcut icon" href="/capnproto-rust/favicon.png">
+</head>
+<body>
+<p>
+28 May 2016
+<p>
+
+<p>Until recently,
+the concept of <em>generators</em>, or <em>resumable functions</em>,
+seemed to me like a cute idea
+with only niche use cases.
+Sure, I had heard that generators
+in <a href="https://www.python.org/dev/peps/pep-0255/">python</a>
+and
+<a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Iterators_and_Generators#Generators">javascript</a>
+could make certain things much nicer,
+but how often does one really need to have
+what appears to be nothing more than a fancy iterator?
+It wasn’t until I followed
+this <a href="https://github.com/rust-lang/rfcs/issues/1081">Rust RFC thread</a>
+that the true potential of generators in Rust started to dawn on me.
+Today they are my personal number-one most-desired new feature for the language, mostly because I
+believe they are the biggest missing piece in Rust’s async story.</p>
+
+<p>But how are generators relevant to async at all?</p>
+
+<p>To understand that, let’s first imagine what generators might look like in Rust.
+We start with a trait definition (borrowed from eddyb’s comment in the above-linked thread):</p>
+
+<figure class="highlight"><pre><code class="language-rust" data-lang="rust"><span class="k">pub</span> <span class="k">enum</span> <span class="n">Yield</span><span class="o">&lt;</span><span class="n">T</span><span class="p">,</span> <span class="n">R</span><span class="o">&gt;</span> <span class="p">{</span>
+    <span class="nf">Value</span><span class="p">(</span><span class="n">T</span><span class="p">),</span>
+    <span class="nf">Return</span><span class="p">(</span><span class="n">R</span><span class="p">)</span>
+<span class="p">}</span>
+
+<span class="k">pub</span> <span class="k">trait</span> <span class="n">Generator</span> <span class="p">{</span>
+    <span class="k">type</span> <span class="n">Value</span><span class="p">;</span>
+    <span class="k">type</span> <span class="n">Return</span><span class="p">;</span>
+    <span class="k">fn</span> <span class="nf">next</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span> <span class="k">self</span><span class="p">)</span> <span class="k">-&gt;</span> <span class="n">Yield</span><span class="o">&lt;</span><span class="nn">Self</span><span class="p">::</span><span class="n">Value</span><span class="p">,</span> <span class="nn">Self</span><span class="p">::</span><span class="n">Return</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="p">}</span></code></pre></figure>
+
+<p>So a generator looks a lot like an iterator. You can ask it for the next value
+until you reach its end, signalled by <code class="highlighter-rouge">Return</code>.
+The interesting part is that there is a special way to construct
+values that implement <code class="highlighter-rouge">Generator</code>. For example:</p>
+
+<figure class="highlight"><pre><code class="language-rust" data-lang="rust"><span class="k">fn</span> <span class="nf">fib_with_sum</span><span class="p">(</span><span class="n">n</span><span class="p">:</span> <span class="n">usize</span><span class="p">)</span> <span class="o">-&lt;</span><span class="nb">u64</span><span class="o">&gt;</span><span class="k">-&gt;</span> <span class="nb">u64</span> <span class="p">{</span>
+     <span class="k">let</span> <span class="k">mut</span> <span class="n">a</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+     <span class="k">let</span> <span class="k">mut</span> <span class="n">b</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span>
+     <span class="k">let</span> <span class="k">mut</span> <span class="n">sum</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+     <span class="k">for</span> <span class="n">_</span> <span class="n">in</span> <span class="mi">0</span><span class="err">.</span><span class="py">.n</span> <span class="p">{</span>
+         <span class="n">yield</span> <span class="n">a</span><span class="p">;</span> <span class="c">// &lt;--- new keyword "yield"</span>
+         <span class="n">sum</span> <span class="o">+=</span> <span class="n">a</span><span class="p">;</span>
+         <span class="k">let</span> <span class="n">next</span> <span class="o">=</span> <span class="n">a</span> <span class="o">+</span> <span class="n">b</span><span class="p">;</span>
+         <span class="n">a</span> <span class="o">=</span> <span class="n">b</span><span class="p">;</span>
+         <span class="n">b</span> <span class="o">=</span> <span class="n">next</span><span class="p">;</span>
+     <span class="p">}</span>
+     <span class="k">return</span> <span class="n">sum</span><span class="p">;</span>
+<span class="p">}</span></code></pre></figure>
+
+<p>Here I’ve used some strawman syntax <code class="highlighter-rouge">fn foo() -&lt;T&gt;-&gt; R</code>, which denotes that <code class="highlighter-rouge">foo</code>
+is a <em>generator function</em> that produces some number of <code class="highlighter-rouge">T</code> values
+and then finishes by producing an <code class="highlighter-rouge">R</code>.
+The <code class="highlighter-rouge">yield</code> keyword inside of a generator function means that a <code class="highlighter-rouge">Yield::Value()</code> should be produced
+and the generator should be paused.
+When you call <code class="highlighter-rouge">fib_with_sum()</code>, the value you get back is a generator,
+which can be used by calling <code class="highlighter-rouge">next()</code>, like this:</p>
+
+<figure class="highlight"><pre><code class="language-rust" data-lang="rust"><span class="k">let</span> <span class="k">mut</span> <span class="n">g</span> <span class="o">=</span> <span class="nf">fib_with_sum</span><span class="p">(</span><span class="mi">5</span><span class="p">);</span>
+<span class="n">g</span><span class="nf">.next</span><span class="p">();</span> <span class="c">// Yield::Value(0)</span>
+<span class="n">g</span><span class="nf">.next</span><span class="p">();</span> <span class="c">// Yield::Value(1)</span>
+<span class="n">g</span><span class="nf">.next</span><span class="p">();</span> <span class="c">// Yield::Value(1)</span>
+<span class="n">g</span><span class="nf">.next</span><span class="p">();</span> <span class="c">// Yield::Value(2)</span>
+<span class="n">g</span><span class="nf">.next</span><span class="p">();</span> <span class="c">// Yield::Value(3)</span>
+<span class="n">g</span><span class="nf">.next</span><span class="p">();</span> <span class="c">// Yield::Return(7)</span></code></pre></figure>
+
+<p>Another thing that we might want to do is to
+have one generator delegate to another generator.
+The <code class="highlighter-rouge">yield from</code> construction allows that:</p>
+
+<figure class="highlight"><pre><code class="language-rust" data-lang="rust"><span class="k">fn</span> <span class="nf">sub_gen</span><span class="p">(</span><span class="n">n</span><span class="p">:</span> <span class="nb">u64</span><span class="p">)</span> <span class="o">-&lt;</span><span class="nb">u64</span><span class="o">&gt;</span><span class="k">-&gt;</span> <span class="nb">bool</span> <span class="p">{</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="n">in</span> <span class="mi">0</span><span class="err">.</span><span class="py">.n</span> <span class="p">{</span>
+        <span class="n">yield</span> <span class="n">i</span>
+    <span class="p">}</span>
+    <span class="k">return</span> <span class="n">n</span> <span class="o">==</span> <span class="mi">3</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="k">fn</span> <span class="nf">gen</span><span class="p">()</span> <span class="o">-&lt;</span><span class="nb">u64</span><span class="o">&gt;</span><span class="k">-&gt;</span> <span class="p">()</span> <span class="p">{</span>
+   <span class="k">for</span> <span class="n">j</span> <span class="n">in</span> <span class="mi">0</span><span class="err">..</span> <span class="p">{</span>
+       <span class="k">if</span> <span class="n">yield</span> <span class="n">from</span> <span class="nf">sub_gen</span><span class="p">(</span><span class="n">j</span><span class="p">)</span> <span class="p">{</span>
+           <span class="k">return</span> <span class="n">j</span><span class="p">;</span>
+       <span class="p">}</span>
+   <span class="p">}</span>
+<span class="p">}</span></code></pre></figure>
+
+<p>Running this gives:</p>
+
+<figure class="highlight"><pre><code class="language-rust" data-lang="rust"><span class="k">let</span> <span class="k">mut</span> <span class="n">g</span> <span class="o">=</span> <span class="nf">gen</span><span class="p">();</span>
+<span class="n">g</span><span class="nf">.next</span><span class="p">();</span> <span class="c">// Yield::Value(0)</span>
+<span class="n">g</span><span class="nf">.next</span><span class="p">();</span> <span class="c">// Yield::Value(0)</span>
+<span class="n">g</span><span class="nf">.next</span><span class="p">();</span> <span class="c">// Yield::Value(1)</span>
+<span class="n">g</span><span class="nf">.next</span><span class="p">();</span> <span class="c">// Yield::Value(0)</span>
+<span class="n">g</span><span class="nf">.next</span><span class="p">();</span> <span class="c">// Yield::Value(1)</span>
+<span class="n">g</span><span class="nf">.next</span><span class="p">();</span> <span class="c">// Yield::Value(2)</span>
+<span class="n">g</span><span class="nf">.next</span><span class="p">();</span> <span class="c">// Yield::Return(3)</span></code></pre></figure>
+
+<p>Note that when the sub-generator is done,
+its return value gets plugged in at the <code class="highlighter-rouge">yield from</code> expression of the
+calling generator. So <code class="highlighter-rouge">gen()</code> continues until <code class="highlighter-rouge">j == 3</code>.</p>
+
+<h3 id="using-generators-for-async-io">Using generators for async I/O</h3>
+
+<p>Now for the punchline. Using generators, we can define
+asynchronous reader and writer traits like this:</p>
+
+<figure class="highlight"><pre><code class="language-rust" data-lang="rust"><span class="k">use</span> <span class="nn">std</span><span class="p">::</span><span class="nn">io</span><span class="p">::{</span><span class="n">Error</span><span class="p">,</span> <span class="n">ErrorKind</span><span class="p">,</span> <span class="n">Result</span><span class="p">};</span>
+
+<span class="k">enum</span> <span class="n">AsyncStatus</span> <span class="p">{</span>
+  <span class="nf">Fd</span><span class="p">(</span><span class="n">FileDescriptor</span><span class="p">),</span>
+  <span class="nf">Timeout</span><span class="p">(</span><span class="n">Time</span><span class="p">),</span>
+  <span class="c">//...</span>
+<span class="p">}</span>
+
+<span class="k">pub</span> <span class="k">trait</span> <span class="n">AsyncWrite</span> <span class="p">{</span>
+    <span class="c">/// Attempts to write all buf.len() bytes from buf into the</span>
+    <span class="c">/// stream. Returns once all of the bytes have been written.</span>
+    <span class="k">fn</span> <span class="nf">write</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span> <span class="k">self</span><span class="p">,</span> <span class="n">bytes</span><span class="p">:</span> <span class="o">&amp;</span><span class="p">[</span><span class="nb">u8</span><span class="p">])</span> <span class="o">-&lt;</span><span class="n">AsyncStatus</span><span class="o">&gt;</span><span class="k">-&gt;</span> <span class="n">Result</span><span class="o">&lt;</span><span class="p">()</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="k">pub</span> <span class="k">trait</span> <span class="n">AsyncRead</span> <span class="p">{</span>
+    <span class="c">/// Attempts to read buf.len() bytes from the stream,</span>
+    <span class="c">/// writing them into buf. Returns the number of bytes</span>
+    <span class="c">/// actually read. Returns as soon as min_bytes are</span>
+    <span class="c">/// read or EOF is encountered.</span>
+    <span class="k">fn</span> <span class="nf">try_read</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span> <span class="k">self</span><span class="p">,</span>
+                <span class="n">buf</span><span class="p">:</span> <span class="o">&amp;</span><span class="k">mut</span> <span class="p">[</span><span class="nb">u8</span><span class="p">],</span>
+                <span class="n">min_bytes</span><span class="p">:</span> <span class="n">usize</span><span class="p">)</span>
+        <span class="o">-&lt;</span><span class="n">AsyncStatus</span><span class="o">&gt;</span><span class="k">-&gt;</span> <span class="n">Result</span><span class="o">&lt;</span><span class="n">usize</span><span class="o">&gt;</span><span class="p">;</span>
+
+    <span class="c">/// Like try_read(), but returns an error if EOF is</span>
+    <span class="c">/// encountered before min_bytes can be read.</span>
+    <span class="k">fn</span> <span class="nf">read</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span> <span class="k">self</span><span class="p">,</span>
+            <span class="n">buf</span><span class="p">:</span> <span class="o">&amp;</span><span class="k">mut</span> <span class="p">[</span><span class="nb">u8</span><span class="p">],</span>
+            <span class="n">min_bytes</span><span class="p">:</span> <span class="n">usize</span><span class="p">)</span>
+        <span class="o">-&lt;</span><span class="n">AsyncStatus</span><span class="o">&gt;</span><span class="k">-&gt;</span> <span class="n">Result</span><span class="o">&lt;</span><span class="n">usize</span><span class="o">&gt;</span><span class="p">;</span>
+    <span class="p">{</span>
+       <span class="k">let</span> <span class="n">n</span> <span class="o">=</span> <span class="nd">try!</span><span class="p">(</span><span class="n">yield</span> <span class="n">from</span> <span class="k">self</span><span class="nf">.try_read</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span> <span class="n">min_bytes</span><span class="p">));</span>
+       <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;</span> <span class="n">min_bytes</span> <span class="p">{</span>
+           <span class="nf">Err</span><span class="p">(</span><span class="nn">Error</span><span class="p">::</span><span class="nf">new</span><span class="p">(</span><span class="nn">ErrorKind</span><span class="p">::</span><span class="n">UnexpectedEof</span><span class="p">,</span>
+                          <span class="nd">format!</span><span class="p">(</span><span class="s">"expected {} but got {} bytes"</span><span class="p">,</span>
+                                  <span class="n">min_bytes</span><span class="p">,</span> <span class="n">n</span><span class="p">)))</span>
+       <span class="p">}</span> <span class="k">else</span> <span class="p">{</span>
+           <span class="nf">Ok</span><span class="p">(</span><span class="n">n</span><span class="p">)</span>
+       <span class="p">}</span>
+    <span class="p">}</span>
+<span class="p">}</span></code></pre></figure>
+
+<p>Then, at the top level of our program, we have
+a task executor, where</p>
+
+<figure class="highlight"><pre><code class="language-rust" data-lang="rust"><span class="k">type</span> <span class="n">Task</span> <span class="o">=</span> <span class="n">Generator</span><span class="o">&lt;</span><span class="n">Value</span><span class="o">=</span><span class="n">AsyncStatus</span><span class="p">,</span> <span class="n">Return</span><span class="o">=</span><span class="p">()</span><span class="o">&gt;</span><span class="p">;</span></code></pre></figure>
+
+<p>The task executor owns a collection of tasks and is responsible
+for running them when they are ready.
+When a task runs and needs to pend on some I/O, it yields
+back what it’s currently waiting on, for example a file descriptor.
+When none of the tasks can make any progress, the executor calls
+a OS-specific API like <code class="highlighter-rouge">kevent()</code> to wait until more progress can be made.</p>
+
+<p>Unlike with fibers/green threading, it remains very clear where
+switches-between-tasks can take place.
+Unlike with promises, we don’t have to be constantly allocating closures
+on the heap. Generator-based async-I/O seems like an all-around win!</p>
+
+<p><a href="https://www.reddit.com/r/rust/comments/4li9v2/generators_are_the_missing_piece_for_async/">(discussion on /r/rust)</a></p>
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+
+<div>
+ <a href="https://www.github.com/dwrensha/capnproto-rust">
+   capnproto-rust on github
+ </a>
+</div>
+
+<div>
+ <a href="/capnproto-rust/index.html">
+   more posts
+ </a>
+</div>
+
+<a href="/capnproto-rust/feed.xml">
+<img src="/capnproto-rust/assets/rss.png"
+     width="14"/>
+</a>
+
+
+</body>

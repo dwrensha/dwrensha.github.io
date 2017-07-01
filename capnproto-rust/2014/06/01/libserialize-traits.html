@@ -1,0 +1,196 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title> the libserialize traits </title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<link rel="stylesheet" href="/capnproto-rust/css/main.css" type="text/css" />
+<link rel="stylesheet" href="/capnproto-rust/css/syntax.css" type="text/css" />
+<link rel="shortcut icon" href="/capnproto-rust/favicon.png">
+</head>
+<body>
+<p>
+01 Jun 2014
+<p>
+
+<p>A number of people have asked me whether
+Cap’n Proto might be able to hook into
+the <code class="highlighter-rouge">Encodable</code> and <code class="highlighter-rouge">Decodable</code>
+traits of Rust’s <code class="highlighter-rouge">libserialize</code>.
+My current answer is
+“perhaps, but it probably wouldn’t buy us much.”</p>
+
+<h4 id="libserialize">libserialize</h4>
+
+<p>The purpose of <code class="highlighter-rouge">Encodable</code> and <code class="highlighter-rouge">Decodable</code>
+is to provide a convenient way
+to make existing Rust data types
+mobile.
+For example, you might have a Rust data type <code class="highlighter-rouge">Foo</code>,</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>struct Foo {
+  a : u64,
+  b : String,
+}
+</code></pre>
+</div>
+
+<p>and you might encounter a need to
+send values of type <code class="highlighter-rouge">Foo</code> between processes.
+Using <code class="highlighter-rouge">libserialize</code>, you can
+add a <code class="highlighter-rouge">deriving</code> annotation, like this:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>#[deriving(Encodable, Decodable)]
+struct Foo {
+  a : u64,
+  b : String,
+}
+</code></pre>
+</div>
+
+<p>which automatically gives <code class="highlighter-rouge">Foo</code>
+the methods
+<code class="highlighter-rouge">encode</code> and <code class="highlighter-rouge">decode</code>,
+allowing translation to and from
+JSON, EBML, or any other encoding
+that implements the <code class="highlighter-rouge">Encoder</code> and <code class="highlighter-rouge">Decoder</code> traits.</p>
+
+<p>In the case of JSON,
+this approach has a secondary use case.
+For structs, arrays, and primitives,
+the mapping between Rust and JSON
+is canonical and simple enough
+that you can in fact use
+<code class="highlighter-rouge">libserialize</code>’s JSON codec
+for communication with externally
+defined interfaces,
+as when you’re constructing the JSON body of
+an HTTP request to some server that you don’t control.</p>
+
+<h4 id="capn-proto">Cap’n Proto</h4>
+
+<p>The typical mode of use of Cap’n Proto
+follows a different pattern.
+We start by defining the types that we
+need to be mobile.
+For the above example, we would have a
+<a href="http://kentonv.github.io/capnproto/language.html">schema file</a>
+containing this definition:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>struct Foo {
+  a @0 : UInt64;
+  b @1 : Text;
+}
+</code></pre>
+</div>
+
+<p>We could then use that schema to generate
+code in any of the <a href="https://kentonv.github.io/capnproto/otherlang.html">supported languages</a>.
+For Rust, this would give us
+types named
+<code class="highlighter-rouge">Foo::Reader</code> and <code class="highlighter-rouge">Foo::Builder</code>
+with accessor methods
+providing
+access to the <code class="highlighter-rouge">a</code> and <code class="highlighter-rouge">b</code> fields.
+You can think of these readers and builders
+as fancy pointers into a byte array
+representing an <em>already serialized</em> <code class="highlighter-rouge">Foo</code>.
+Cap’n Proto lets us access and modify
+these bytes in a way that’s nearly
+as convenient as accessing and modifying
+Rust-native structs.</p>
+
+<p>The chief advantages of Cap’n Proto,
+including its high performance and the small size of its generated code,
+are only possible because all operations on data are directly backed by
+byte arrays in this way.</p>
+
+<h4 id="conclusion">conclusion?</h4>
+
+<p>Suppose you’ve already defined
+some Rust data types,
+you now want them to be mobile,
+and you also want to use Cap’n Proto.
+What options are available to you?</p>
+
+<p>You could move the data type definitions into a schema file
+and replace all uses in the Rust code
+with the generated reader and builder types.
+If feasible, this is the way to go,
+as it gives you all the benefits that
+Cap’n Proto was designed for, including
+<a href="http://kentonv.github.io/capnproto/language.html#evolving_your_protocol">backwards compatibility</a>.</p>
+
+<p>It might, however, be too awkward to use the Cap’n Proto
+readers and builders everywhere.
+An alternative on the opposite side of the
+spectrum
+would be to
+mimic the behavior of the JSON codec.
+You could implement <code class="highlighter-rouge">Encoder</code> and <code class="highlighter-rouge">Decoder</code>
+for a Cap’n Proto schema describing Rust values, as outlined below.</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>struct RustValue {
+  union {
+    struct  @0 : Struct;
+    variant @1 : Variant;
+    array   @2 : List(RustValue);
+    uint8   @3 : UInt8;
+    uint16  @4 : UInt16;
+    uint32  @5 : UInt32;
+    uint64  @6 : UInt64;
+    ...
+  }
+}
+
+struct Struct {
+  fields @0 : List(Field);
+}
+
+struct Field {
+  name  @0 : Text;
+  value @1 : RustValue;
+}
+
+struct Variant {
+   name  @0 : Text;
+   args  @1 : List(RustValue);
+}
+</code></pre>
+</div>
+
+<p>Note that this may or may not actually be
+more efficient than the JSON version.</p>
+
+<p>Another option might be to
+move the data type definitions into a schema file
+but keep the Rust type definitions as well,
+and to implement some code generation
+for translating between them,
+perhaps through the <code class="highlighter-rouge">Encoder</code> and <code class="highlighter-rouge">Decoder</code> traits or something similar.
+This would preserve some of the advantages
+of both approaches, but would likely add considerable complexity.</p>
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+
+<div>
+ <a href="https://www.github.com/dwrensha/capnproto-rust">
+   capnproto-rust on github
+ </a>
+</div>
+
+<div>
+ <a href="/capnproto-rust/index.html">
+   more posts
+ </a>
+</div>
+
+<a href="/capnproto-rust/feed.xml">
+<img src="/capnproto-rust/assets/rss.png"
+     width="14"/>
+</a>
+
+
+</body>

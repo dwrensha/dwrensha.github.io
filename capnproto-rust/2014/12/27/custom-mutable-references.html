@@ -1,0 +1,207 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title> custom mutable reference types </title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<link rel="stylesheet" href="/capnproto-rust/css/main.css" type="text/css" />
+<link rel="stylesheet" href="/capnproto-rust/css/syntax.css" type="text/css" />
+<link rel="shortcut icon" href="/capnproto-rust/favicon.png">
+</head>
+<body>
+<p>
+27 Dec 2014
+<p>
+
+<p>Rust’s <em>mutable references</em> provide exclusive access to writable locations in memory.
+If we have <code class="highlighter-rouge">x : &amp;'a mut T</code>,
+then we know that the referred-to <code class="highlighter-rouge">T</code>
+cannot be read or modified except through dereferencing <code class="highlighter-rouge">x</code>.
+In other words, <code class="highlighter-rouge">x</code> can have no aliases.
+This guarantee is
+crucial for memory safety,
+as it implies that
+any mutations we apply through
+<code class="highlighter-rouge">x</code> have no risk of invalidating references held
+elsewhere in our program.</p>
+
+<p>The <code class="highlighter-rouge">Builder</code> types
+of <a href="https://github.com/dwrensha/capnproto-rust">capnproto-rust</a>
+also need to provide an exclusivity guarantee.
+Recall that if <code class="highlighter-rouge">Foo</code> is a struct defined in a Cap’n Proto schema,
+then a <code class="highlighter-rouge">foo::Builder&lt;'a&gt;</code>
+provides access to a writable location
+in arena-allocated memory that contains
+a <code class="highlighter-rouge">Foo</code> in <a href="https://kentonv.github.io/capnproto/encoding.html">Cap’n Proto format</a>.
+To protect access to that memory, a <code class="highlighter-rouge">foo::Builder&lt;'a&gt;</code> ought to behave
+as if it were a <code class="highlighter-rouge">&amp;'a mut Foo</code>,
+even though the <code class="highlighter-rouge">Foo</code> type
+cannot directly exist in Rust
+(because Cap’n Proto struct layout
+differs from Rust struct layout).</p>
+
+<p>So the question arises: how do we define custom mutable references?</p>
+
+<p>As we’ll see, the easy part is ensuring exclusive access,
+which can be achieved simply by not
+implementing the <code class="highlighter-rouge">Copy</code> trait for <code class="highlighter-rouge">foo::Builder&lt;'a&gt;</code>.
+The tricky part is making it ergonomic to reuse a reference,
+something that built-in mutable references achieve through
+special <em>automatic reborrowing</em> semantics. Our custom references
+can use similar semantics, but they need to be slightly more explicit about it.</p>
+
+<p>Okay, let’s get concrete. Suppose that <code class="highlighter-rouge">Foo</code> is defined in a Cap’n Proto schema like this:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>struct Foo {
+  x @0 : Float32;
+  blob @1 : Data;
+}
+</code></pre>
+</div>
+
+<p>When we call <code class="highlighter-rouge">capnp compile -orust foo.capnp</code>, we get generated code
+containing the following definitions:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>mod foo {
+  pub struct Builder&lt;'a&gt; {...}
+
+  impl &lt;'a&gt; Builder&lt;'a&gt; {
+    pub fn get_x(self) -&gt; f32 {...}
+    pub fn set_x(&amp;mut self, value : f32) {...}
+    pub fn get_blob(self) -&gt; ::capnp::data::Builder&lt;'a&gt; {...}
+    pub fn set_blob(&amp;mut self, value : ::capnp::data::Reader) {...}
+    pub fn init_blob(self, length : u32) -&gt; ::capnp::data::Builder&lt;'a&gt; {...}
+    ...
+  }
+  ...
+}
+</code></pre>
+</div>
+
+<p>You see here the usual accessor methods that allow us to
+read and modify a <code class="highlighter-rouge">Foo</code>.
+Note that the <code class="highlighter-rouge">get_</code> and <code class="highlighter-rouge">init_</code> methods take a by-value <code class="highlighter-rouge">self</code>
+parameter.
+This ensures that at most one <code class="highlighter-rouge">::capnp::data::Builder</code> referring to the <code class="highlighter-rouge">blob</code> field
+can be obtained.
+For example, if we call <code class="highlighter-rouge">foo.init_blob()</code> then we cannot later call <code class="highlighter-rouge">foo.get_blob()</code>,
+because <code class="highlighter-rouge">foo</code> <em>moves into</em> the first call
+and cannot be used again.
+As the <code class="highlighter-rouge">::capnp::data::Builder&lt;'a&gt;</code> type is in fact just a typedef for <code class="highlighter-rouge">&amp;'a mut [u8]</code>,
+it should be extra clear here why exclusivity is important to maintain.</p>
+
+<p>One thing we might do with these accessors is
+initialize the <code class="highlighter-rouge">Foo</code> and return a reference to its interior,
+as does this function:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>fn init_and_return_slice&lt;'a&gt;(foo : foo::Builder&lt;'a&gt;) -&gt; &amp;'a mut [u8] {
+    foo.init_blob(100).slice_mut(5, 10)
+}
+</code></pre>
+</div>
+
+<p>But what if we want to call this function and
+then afterwards call <code class="highlighter-rouge">set_x()</code>?
+We might write something like this:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>fn do_some_things_wrong&lt;'a&gt;(mut foo : foo::Builder&lt;'a&gt;) {
+   {
+     let slice = init_and_return_slice(foo);
+     slice[0] = 42;
+   }
+   foo.set_x(1.23);
+}
+</code></pre>
+</div>
+<p>but if we try to compile this function, we get the following typecheck error:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>main.rs:19:9: 19:12 error: use of moved value: `foo`
+main.rs:19         foo.set_x(1.23);
+                   ^~~
+</code></pre>
+</div>
+
+<p>The same pass-by-move semantics that were essential to preventing
+aliasing have now become a problem.
+We would like to be
+able to borrow <code class="highlighter-rouge">foo</code> for just the inner block,
+and then reuse it for the final line.
+If <code class="highlighter-rouge">foo</code> were a built-in mutable reference, such a <em>reborrow</em>
+would take place automatically, and everything would just work.
+Fortunately, we can make do with our custom mutable reference
+if we use the following following function,
+which is also included in the generated code:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>mod foo {
+  ...
+  impl &lt;'a&gt; Builder &lt;'a&gt; {
+    pub fn borrow&lt;'b&gt;(&amp;'b mut self) -&gt; Builder&lt;'b&gt; { ... }
+  }
+  ...
+}
+</code></pre>
+</div>
+
+<p>Using this, we can write our function as follows, and it successfully typechecks.</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>fn do_some_things_right&lt;'a&gt;(mut foo : foo::Builder&lt;'a&gt;) {
+    {
+        let slice = init_and_return_slice(foo.borrow());
+        slice[0] = 42
+    }
+    foo.set_x(1.23);
+}
+</code></pre>
+</div>
+
+<p>So it appears that the main inconviences of using our custom mutable references
+compared to built-in mutable references
+is that we need to add some calls to <code class="highlighter-rouge">.borrow()</code> and maybe add some <code class="highlighter-rouge">mut</code>’s to some bindings.
+In fact, it seems to me that it would be possible for Rust to support
+a built-in <code class="highlighter-rouge">Reborrow</code> trait that could eliminate even these
+inconveniences.</p>
+
+<p>Finally, in case you’re wondering why we prefer by-move <code class="highlighter-rouge">self</code> over <code class="highlighter-rouge">&amp;mut self</code>
+in our generated accessor methods, suppose that we also define this type in our schema:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>struct Bar {
+  oneFoo @0 : Foo;
+}
+</code></pre>
+</div>
+
+<p>Using by-move <code class="highlighter-rouge">self</code> allows us to return references deep in the interior of a <code class="highlighter-rouge">Bar</code>, like this:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>fn init_field_and_return_slice&lt;'a&gt;(bar : bar::Builder&lt;'a&gt;) -&gt; &amp;'a mut [u8] {
+    bar.init_one_foo().init_blob(100).slice_mut(5, 10)
+}
+</code></pre>
+</div>
+
+<p>If <code class="highlighter-rouge">init_blob()</code> instead took a <code class="highlighter-rouge">&amp;mut self</code> parameter, this function would fail to typecheck
+because the <code class="highlighter-rouge">foo::Builder</code> returned by <code class="highlighter-rouge">bar.init_one_foo()</code> does not live long enough.</p>
+
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+
+<div>
+ <a href="https://www.github.com/dwrensha/capnproto-rust">
+   capnproto-rust on github
+ </a>
+</div>
+
+<div>
+ <a href="/capnproto-rust/index.html">
+   more posts
+ </a>
+</div>
+
+<a href="/capnproto-rust/feed.xml">
+<img src="/capnproto-rust/assets/rss.png"
+     width="14"/>
+</a>
+
+
+</body>

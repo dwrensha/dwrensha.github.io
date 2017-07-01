@@ -1,0 +1,157 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title> asynchronous I/O with promises </title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<link rel="stylesheet" href="/capnproto-rust/css/main.css" type="text/css" />
+<link rel="stylesheet" href="/capnproto-rust/css/syntax.css" type="text/css" />
+<link rel="shortcut icon" href="/capnproto-rust/favicon.png">
+</head>
+<body>
+<p>
+25 May 2015
+<p>
+
+<p>My Rust <a href="https://github.com/dwrensha/capnp-rpc-rust">implementation</a>
+of the Cap’n Proto remote procedure call protocol
+was designed in a bygone era.
+Back then, Rust’s runtime library
+provided thread-like “tasks”
+that were backed by <a href="https://github.com/alexcrichton/green-rs">libgreen</a>
+and were therefore “cheap to spawn.”
+These enabled
+<a href="http://en.wikipedia.org/wiki/Communicating_sequential_processes">CSP</a>-style
+programming
+with beautifully simple blocking I/O operations
+that were, under the hood,
+dispatched through <a href="https://github.com/libuv/libuv">libuv</a>.
+While the question of whether this model was actually efficient
+was a matter of much <a href="https://github.com/rust-lang/rfcs/pull/219">discussion</a>,
+I personally enjoyed using it and found it
+easy to reason about.</p>
+
+<p>For better or worse, the era of libgreen
+<a href="https://github.com/rust-lang/rfcs/blob/master/text/0230-remove-runtime.md">has ended</a>.
+Code originally written for libgreen can still work,
+but because each “task” is now its own system-level thread,
+calling them “lightweight” is more of a stretch than ever.
+As I’ve maintained capnp-rpc-rust over the past year,
+its need for a different approach to concurrency
+has become increasingly apparent.</p>
+
+<h2 id="introducing-gjhttpsgithubcomdwrenshagj">Introducing <a href="https://github.com/dwrensha/gj">GJ</a></h2>
+
+<p><a href="https://github.com/dwrensha/gj">GJ</a> is a new Rust library that provides
+abstractions for event-loop concurrency and asynchronous I/O,
+aiming to meet the needs of Cap’n Proto RPC.
+The main ideas in GJ are taken from
+<a href="https://capnproto.org/cxxrpc.html#kj-concurrency-framework">KJ</a>,
+a C++ library that forms the foundation of capnproto-c++.
+At <a href="https://sandstorm.io">Sandstorm</a>, we have been
+successfully using KJ-based concurrency
+in our core infrastructure for a while now;
+some examples you can look at include a
+<a href="https://github.com/sandstorm-io/sandstorm/blob/3a3e93eb142969125aa8573df4edc6c62efbeebe/src/sandstorm/sandstorm-http-bridge.c++">bridge</a> that translates between
+HTTP and <a href="https://github.com/sandstorm-io/sandstorm/blob/3a3e93eb142969125aa8573df4edc6c62efbeebe/src/sandstorm/web-session.capnp">this Cap’n Proto interface</a>,
+and a
+<a href="https://github.com/sandstorm-io/sandstorm/blob/3a3e93eb142969125aa8573df4edc6c62efbeebe/src/sandstorm/fuse.c++">Cap’n Proto driver</a>
+to a FUSE filesystem.</p>
+
+<p>The core abstraction in GJ is the <code class="highlighter-rouge">Promise&lt;T&gt;</code>, representing
+a computation that may eventually resolve to a value of type <code class="highlighter-rouge">T</code>.
+Instead of blocking, any non-immediate operation in GJ
+returns a promise that gets fulfilled upon the operation’s completion.
+To use a promise, you register a callback with the <code class="highlighter-rouge">then()</code> method.
+For example:</p>
+
+<figure class="highlight"><pre><code class="language-rust" data-lang="rust"><span class="k">pub</span> <span class="k">fn</span> <span class="nf">connect_then_write</span><span class="p">(</span><span class="n">addr</span><span class="p">:</span> <span class="nn">gj</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">NetworkAddress</span><span class="p">)</span>
+                         <span class="k">-&gt;</span> <span class="nn">gj</span><span class="p">::</span><span class="n">Promise</span><span class="o">&lt;</span><span class="p">()</span><span class="o">&gt;</span>
+<span class="p">{</span>
+    <span class="k">return</span> <span class="n">addr</span><span class="nf">.connect</span><span class="p">()</span><span class="nf">.then</span><span class="p">(|</span><span class="n">stream</span><span class="p">|</span> <span class="p">{</span>
+       <span class="c">// The connection has succeeded. Let's write some data.</span>
+       <span class="k">return</span> <span class="nf">Ok</span><span class="p">(</span><span class="n">stream</span><span class="nf">.write</span><span class="p">(</span><span class="nd">vec!</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">]));</span>
+    <span class="p">})</span><span class="nf">.then</span><span class="p">(|(</span><span class="n">stream</span><span class="p">,</span> <span class="n">_</span><span class="p">)|</span> <span class="p">{</span>
+       <span class="c">// The the first write has succeeded. Let's write some more.</span>
+       <span class="k">return</span> <span class="nf">Ok</span><span class="p">(</span><span class="n">stream</span><span class="nf">.write</span><span class="p">(</span><span class="nd">vec!</span><span class="p">[</span><span class="mi">4</span><span class="p">,</span><span class="mi">5</span><span class="p">,</span><span class="mi">6</span><span class="p">]));</span>
+    <span class="p">})</span><span class="nf">.then</span><span class="p">(|(</span><span class="n">stream</span><span class="p">,</span> <span class="n">_</span><span class="p">)|</span> <span class="p">{</span>
+       <span class="c">// The the second write has succeeded. Let's just return;</span>
+       <span class="k">return</span> <span class="nf">Ok</span><span class="p">(</span><span class="nn">gj</span><span class="p">::</span><span class="nn">Promise</span><span class="p">::</span><span class="nf">fulfilled</span><span class="p">(()));</span>
+    <span class="p">});</span>
+<span class="p">}</span></code></pre></figure>
+
+<p>Callbacks registered with <code class="highlighter-rouge">then()</code> never move between threads, so they do
+not need to be thread-safe.
+In Rust jargon, the callbacks are <code class="highlighter-rouge">FnOnce</code> closures that need not be <code class="highlighter-rouge">Send</code>.
+This means that you can share mutable data between them
+without any need for mutexes or atomics. For example, to share a counter,
+you could do this:</p>
+
+<figure class="highlight"><pre><code class="language-rust" data-lang="rust"><span class="k">pub</span> <span class="k">fn</span> <span class="nf">ticker</span><span class="p">(</span><span class="n">counter</span><span class="p">:</span> <span class="nb">Rc</span><span class="o">&lt;</span><span class="n">Cell</span><span class="o">&lt;</span><span class="nb">u32</span><span class="o">&gt;&gt;</span><span class="p">,</span>
+              <span class="n">delay_ms</span><span class="p">:</span> <span class="nb">u64</span><span class="p">)</span> <span class="k">-&gt;</span> <span class="nn">gj</span><span class="p">::</span><span class="n">Promise</span><span class="o">&lt;</span><span class="p">()</span><span class="o">&gt;</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="nn">gj</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Timer</span><span class="nf">.after_delay_ms</span><span class="p">(</span><span class="n">delay_ms</span><span class="p">)</span><span class="nf">.then</span><span class="p">(</span><span class="k">move</span> <span class="p">|()|</span> <span class="p">{</span>
+        <span class="nd">println!</span><span class="p">(</span><span class="s">"the counter is at: {}"</span><span class="p">,</span> <span class="n">counter</span><span class="nf">.get</span><span class="p">());</span>
+        <span class="n">counter</span><span class="nf">.set</span><span class="p">(</span><span class="n">counter</span><span class="nf">.get</span><span class="p">()</span> <span class="o">+</span> <span class="mi">1</span><span class="p">);</span>
+        <span class="k">return</span> <span class="nf">Ok</span><span class="p">(</span><span class="nf">ticker</span><span class="p">(</span><span class="n">counter</span><span class="p">,</span> <span class="n">delay_ms</span><span class="p">));</span>
+    <span class="p">});</span>
+<span class="p">}</span>
+
+<span class="k">pub</span> <span class="k">fn</span> <span class="nf">two_tickers</span><span class="p">()</span> <span class="k">-&gt;</span> <span class="nn">gj</span><span class="p">::</span><span class="n">Promise</span><span class="o">&lt;</span><span class="nb">Vec</span><span class="o">&lt;</span><span class="p">()</span><span class="o">&gt;&gt;</span> <span class="p">{</span>
+    <span class="k">let</span> <span class="n">counter</span> <span class="o">=</span> <span class="nn">Rc</span><span class="p">::</span><span class="nf">new</span><span class="p">(</span><span class="nn">Cell</span><span class="p">::</span><span class="nf">new</span><span class="p">(</span><span class="mi">0</span><span class="p">));</span>
+    <span class="k">return</span> <span class="nn">gj</span><span class="p">::</span><span class="nf">join_promises</span><span class="p">(</span><span class="nd">vec!</span><span class="p">[</span><span class="nf">ticker</span><span class="p">(</span><span class="n">counter</span><span class="nf">.clone</span><span class="p">(),</span> <span class="mi">500</span><span class="p">),</span>
+                                  <span class="nf">ticker</span><span class="p">(</span><span class="n">counter</span><span class="p">,</span> <span class="mi">750</span><span class="p">)]);</span>
+<span class="p">}</span></code></pre></figure>
+
+<p>If you do want to use multiple threads, GJ makes it easy to set up an
+event loop in each and to communicate between them over streams of bytes.</p>
+
+<p>To learn more about what’s possible with GJ,
+I encourage you to explore some of more complete
+<a href="https://github.com/dwrensha/gj/tree/master/examples">examples</a>
+in the git repo.</p>
+
+<h2 id="onwards">Onwards!</h2>
+
+<p>Two things in particular have made working GJ especially fun so far:</p>
+
+<ol>
+  <li>KJ is written in clean, modern C++ that translates nicely into idiomatic Rust.
+The translation is fairly direct most of the time, and parts that don’t translate directly make
+for fun puzzles! For one such nontrival translation, compare KJ’s
+<a href="https://github.com/sandstorm-io/capnproto/blob/6315eaed384199702240c8d1b8d8186ae55e24e9/c%2B%2B/src/kj/async-io.h#L54">AsyncOutputStream</a>
+to GJ’s
+<a href="https://github.com/dwrensha/gj/blob/8156f3cc89af96024e1bc0001481b11e40bef0f5/src/io.rs#L55">AsyncWrite</a>.</li>
+  <li>The excellent <a href="https://github.com/carllerche/mio">mio</a> library allows us to not worry
+about system-specific APIs. It provides a uniform abstraction on top of
+<code class="highlighter-rouge">epoll</code> on Linux and <code class="highlighter-rouge">kqueue</code> on OSX, and maybe someday even <code class="highlighter-rouge">IOCP</code> in Windows.</li>
+</ol>
+
+<p>Although basics of GJ are operational today,
+there’s still a lot of work left to do.
+If this is a project that sounds interesting
+or useful to you, I’d love to have your help!</p>
+
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+
+<div>
+ <a href="https://www.github.com/dwrensha/capnproto-rust">
+   capnproto-rust on github
+ </a>
+</div>
+
+<div>
+ <a href="/capnproto-rust/index.html">
+   more posts
+ </a>
+</div>
+
+<a href="/capnproto-rust/feed.xml">
+<img src="/capnproto-rust/assets/rss.png"
+     width="14"/>
+</a>
+
+
+</body>

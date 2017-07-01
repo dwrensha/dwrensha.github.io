@@ -1,0 +1,111 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title> updated benchmark comparison to C++ </title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<link rel="stylesheet" href="/capnproto-rust/css/main.css" type="text/css" />
+<link rel="stylesheet" href="/capnproto-rust/css/syntax.css" type="text/css" />
+<link rel="shortcut icon" href="/capnproto-rust/favicon.png">
+</head>
+<body>
+<p>
+15 Jan 2014
+<p>
+
+<p>Two months have passed since I posted an
+<a href="/capnproto-rust/2013/11/16/benchmark.html">initial benchmark</a>
+of the Rust and C++ implementations of <a href="http://kentonv.github.io/capnproto/">Cap’n Proto</a>.
+Enough has changed in that time to make it worth
+presenting updated results.</p>
+
+<p>One change is that I got a faster computer. Unfortunately,
+that means that results from the two benchmarks will not be directly
+comparable.</p>
+
+<p>A more pertinent change
+is that I (partially) implemented scratch-space reuse,
+an optional feature that can reduce allocations.
+The addition of this feature doubles the number of benchmark configurations,
+as we can run each communication mode with or without “reuse” turned on.</p>
+
+<p>Otherwise, the benchmark itself is the same as before.</p>
+
+<p>First, the “carsales” case, heavy on numbers.</p>
+
+<p><img src="/capnproto-rust/assets/carsales-2014-01-14.png" width="500" /></p>
+
+<p>Recall that in November’s benchmark,
+capnproto-rust was slightly faster than capnproto-c++
+in “object” mode.
+This is no longer true.
+I believe that capnproto-c++
+was previously disadvantaged
+because it was providing
+extra thread safety—in particular,
+the ability for multiple threads
+to share a mutable MessageBuilder.
+That feature was dropped in
+<a href="https://github.com/kentonv/capnproto/commit/c5bed0d2967193b095f980341fd88dc7decd5e94">this commit</a>.</p>
+
+<p>Next, the “catrank” case, heavy on strings.</p>
+
+<p><img src="/capnproto-rust/assets/catrank-2014-01-14.png" width="500" /></p>
+
+<p>In November, capnproto-rust was hampered here
+by its lack of support for
+direct writing of string fields.
+That has been remedied.
+However, capnproto-rust
+has another disadvantage here;
+cpu profiling reveals that
+it spends roughly ten percent of its time verifying that strings
+are valid UTF-8, while capnproto-c++
+does not bother with any such verification.
+Note that the Cap’n Proto <a href="http://kentonv.github.io/capnproto/encoding.html#blobs">encoding spec</a>
+requires that strings be valid UTF-8, but says
+nothing about whether
+the receiver of a non-UTF-8 string
+should report an error.</p>
+
+<p>Finally, the “eval” case, heavy on pointer indirections.
+<img src="/capnproto-rust/assets/eval-2014-01-14.png" width="500" /></p>
+
+<p>In contrast to November’s results,
+the relative performance of capnproto-rust now does not
+significantly degrade when it must perform I/O in the “pipe”
+communication mode.
+The main reason for the improvement is
+that the benchmark now uses libnative, Rust’s 1:1 threading runtime,
+whereas in November
+it used libgreen,
+Rust’s M:N threading runtime built on libuv.
+Only recently has it become convenient to swap between
+these two runtimes.
+If I run the “eval” case in “pipe” mode with libgreen today,
+Rust takes approximately twice as long as it does with libnative.</p>
+
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+
+<div>
+ <a href="https://www.github.com/dwrensha/capnproto-rust">
+   capnproto-rust on github
+ </a>
+</div>
+
+<div>
+ <a href="/capnproto-rust/index.html">
+   more posts
+ </a>
+</div>
+
+<a href="/capnproto-rust/feed.xml">
+<img src="/capnproto-rust/assets/rss.png"
+     width="14"/>
+</a>
+
+
+</body>
