@@ -1,5 +1,137 @@
-<html><head><meta http-equiv="refresh" content="0;url=https://capnproto.github.io/capnproto-java/2014/10/13/alpha-release.html">
-<link rel="canonical" href="https://capnproto.github.io/capnproto-java/2014/10/13/alpha-release.html">
-<script type="text/javascript">window.location.replace("https://capnproto.github.io/capnproto-java/2014/10/13/alpha-release.html" + window.location.hash);</script></head>
-<body><p>Go to: <a href="https://capnproto.github.io/capnproto-java/2014/10/13/alpha-release.html">https://capnproto.github.io/capnproto-java/2014/10/13/alpha-release.html</a><br>
-(GitHub Pages doesn't support 301 redirects :(.)</body></html>
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset='utf-8' />
+    <meta http-equiv="X-UA-Compatible" content="chrome=1" />
+    <meta name="description" content="Slate is a responsive theme for GitHub Pages" />
+
+    <link rel="stylesheet" type="text/css" media="screen" href="/capnproto-java/stylesheets/stylesheet.css">
+
+    <title>capnproto-java alpha release with benchmarks</title>
+  </head>
+
+  <body>
+
+    <!-- HEADER -->
+    <div id="header_wrap" class="outer">
+        <header class="inner">
+          <a id="forkme_banner" href="https://github.com/dwrensha/capnproto-java">View on GitHub</a>
+
+          <h1 id="project_title">Cap'n Proto for Java</h1>
+          <h2 id="project_tagline">extremely efficient serialization in pure Java</h2>
+
+          <div class="menu_bar">
+            <a href="/capnproto-java/index.html">Introduction</a>
+            &nbsp;
+            <a href="/capnproto-java/news.html">News</a>
+          </div>
+        </header>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div id="main_content_wrap" class="outer">
+      <section id="main_content" class="inner">
+
+<h3>
+capnproto-java alpha release with benchmarks
+</h3>
+<p>
+13 Oct 2014
+<p>
+
+
+<p>I'm happy to announce that
+<a href="https://github.com/dwrensha/capnproto-java">capnproto-java</a> is now a
+mostly complete implementation of
+the <a href="http://capnproto.org">Cap'n Proto</a> serialization protocol.
+It supports all of the data features of the Cap'n Proto schema language,
+including constants, default values, and arbitrarily nested list types.
+Moreover, the runtime and the generated code consist entirely
+of platform-independent, safe Java code.</p>
+
+<p>In the spirit of previous announcements about the
+<a href="http://dwrensha.github.io/capnproto-rust/2014/01/15/benchmark-update.html">Rust</a>
+and
+<a href="http://pelzlpj.github.io/capnp-ocaml/2014/09/02/capnp-ocaml-2.0/">OCaml</a>
+implementations,
+I've made some informal measurements
+with the <a href="https://github.com/kentonv/capnproto/tree/master/c%2B%2B/src/benchmark">usual</a>
+toy benchmark suite.
+The results show
+the Java implementation performing
+at worst
+3x slower than the C++ and Rust implementations,
+and at best about 2x slower.
+I find these results promising,
+considering how difficult it can be to avoid
+heap allocations and redundant bounds-checking
+on the JVM.</p>
+
+<p>I ran each of the three benchmark cases
+in five modes. In the "object" mode,
+the data is passed in-process without any copying.
+In the "bytes" mode, the data
+is written to a flat array and then re-read in-process.
+In the "pipe" mode, the data is passed
+as a byte stream between separate processes.
+In the "packed" sub-modes,
+a <a href="https://capnproto.org/encoding.html#packing">compression scheme</a>
+is applied to the bytes before they are passed.</p>
+
+<p>To give the JVM a chance to amortize
+the cost of just-in-time compilation,
+I ran the benchmarks for
+10x more iterations than
+in the previous Rust vs. C++ benchmarks.</p>
+
+<p>Here are the results.</p>
+
+<p><img src="/capnproto-java/assets/carsales.png"
+     width="500"/></p>
+
+<p>The CarSales case does a lot of
+iteration through lists of structs.
+One way to improve Java's performance here
+might be to implement list iterators
+that update in-place, so that we don't
+need to allocate a new <code>StructReader</code> for each
+member of a list.</p>
+
+<p><img src="/capnproto-java/assets/catrank.png"
+     width="500"/></p>
+
+<p>The CatRank case emphasizes string processing.
+One big difficulty faced by Java here is that
+it uses UTF-16 encoding, while
+Cap'n Proto uses UTF-8;
+translating between the two requires
+significant copying of memory.</p>
+
+<p><img src="/capnproto-java/assets/eval.png"
+     width="500"/></p>
+
+<p>The Eval case seems to confirm that packing
+costs proportionally more for Java
+than for the other implementations.
+There are almost certainly still
+some optimizations we could apply to that
+part of the Java implementation,
+but we may be fundamentally limited
+by the fact that Java bounds-checks
+every array access.</p>
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+    <!-- FOOTER  -->
+    <div id="footer_wrap" class="outer">
+      <footer class="inner">
+        <p class="copyright">capnproto-java is maintained by <a href="https://github.com/dwrensha">David Renshaw</a></p>
+      </footer>
+    </div>
+
+  </body>
+</html>
+

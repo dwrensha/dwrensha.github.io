@@ -1,5 +1,342 @@
-<html><head><meta http-equiv="refresh" content="0;url=https://capnproto.github.io/capnproto-java/">
-<link rel="canonical" href="https://capnproto.github.io/capnproto-java/">
-<script type="text/javascript">window.location.replace("https://capnproto.github.io/capnproto-java/" + window.location.hash);</script></head>
-<body><p>Go to: <a href="https://capnproto.github.io/capnproto-java/">https://capnproto.github.io/capnproto-java/</a><br>
-(GitHub Pages doesn't support 301 redirects :(.)</body></html>
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset='utf-8' />
+    <meta http-equiv="X-UA-Compatible" content="chrome=1" />
+    <meta name="description" content="Slate is a responsive theme for GitHub Pages" />
+
+    <link rel="stylesheet" type="text/css" media="screen" href="/capnproto-java/stylesheets/stylesheet.css">
+
+    <title>Cap'n Proto for Java</title>
+  </head>
+
+  <body>
+
+    <!-- HEADER -->
+    <div id="header_wrap" class="outer">
+        <header class="inner">
+          <a id="forkme_banner" href="https://github.com/dwrensha/capnproto-java">View on GitHub</a>
+
+          <h1 id="project_title">Cap'n Proto for Java</h1>
+          <h2 id="project_tagline">extremely efficient serialization in pure Java</h2>
+
+          <div class="menu_bar">
+            <a href="/capnproto-java/index.html">Introduction</a>
+            &nbsp;
+            <a href="/capnproto-java/news.html">News</a>
+          </div>
+        </header>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div id="main_content_wrap" class="outer">
+      <section id="main_content" class="inner">
+
+<h2>Introduction</h2>
+
+<p>This is a Java implementation of <a href="http://capnproto.org">Cap'n Proto</a>.
+It has two main components:</p>
+
+<ol>
+<li><p>A C++ program <code>capnpc-java</code> that
+generates Java source code from Cap'n Proto <a href="https://capnproto.org/language.html">schemas</a>
+by acting as a
+<a href="https://capnproto.org/otherlang.html#how-to-write-compiler-plugins">plugin</a>
+to the Cap'n Proto schema compiler.</p></li>
+<li><p>A Java package <code>org.capnproto</code> that provides runtime support for <code>capnpc-java</code>'s generated code.</p></li>
+</ol>
+
+
+<p>These components let you make your data <strong>mobile</strong>,
+so that you can manipulate your data in Java
+and also easily communicate it
+to distributed components written
+in other programming languages.
+Under the hood, all operations are
+backed by <code>java.nio.ByteBuffer</code>.
+If you, for example, want to communicate over a
+network, you can just directly write the bytes to the wire.
+There is no encode or decode step!</p>
+
+<p>We hope eventually to provide support in Java for a
+<a href="https://capnproto.org/rpc.html">distributed object-capability layer</a>
+built on top of this serialization layer,
+but we have not embarked on that project yet.</p>
+
+<h2>Installation</h2>
+
+<h3>Schema Compiler and Plugin</h3>
+
+<p>You will need to <a href="http://capnproto.org/install.html">install</a> the
+latest release of the Cap'n Proto schema compiler.
+Then, running <code>make</code> should build <code>capnpc-java</code>.</p>
+
+<p>On Windows, you can instead
+grab a prebuilt win32 executable from here:</p>
+
+<p> <pre><a href="https://dwrensha.ws/capnproto/capnpc-java.exe.zip">https://dwrensha.ws/capnproto/capnpc-java.exe.zip</a></pre></p>
+
+<p>For help on how to invoke the schema compiler:</p>
+
+<pre><code>capnp compile --help
+</code></pre>
+
+<p>Note that you'll need to include <code>java.capnp</code> so that you can use the <code>package</code> and <code>outerClassname</code>
+annotations. This schema is located in <code>compiler/src/main/schema</code>.</p>
+
+<p>You might find useful <a href="https://github.com/expretio/capnp-maven-plugin">this Maven Plugin</a>.</p>
+
+<h3>Runtime</h3>
+
+<p>The runtime is available on
+<a href="https://search.maven.org/#search%7Cga%7C1%7Cg%3A%22org.capnproto%22">The Central Repository</a>.</p>
+
+<p>We use <a href="http://scala-sbt.org">sbt</a> for building and testing the Java code.
+Running <code>sbt compile</code> at the top-level directory should build
+<code>org.capnproto</code> and <code>org.capnproto.examples</code>.
+Running <code>sbt test</code> should run the test suite.</p>
+
+<h2>Example</h2>
+
+<p>We can define types in a schema like this:</p>
+
+<pre><code>@0x9eb32e19f86ee174;
+using Java = import "/capnp/java.capnp";
+$Java.package("org.capnproto.examples");
+$Java.outerClassname("Addressbook");
+
+struct Person {
+  id @0 :UInt32;
+  name @1 :Text;
+  email @2 :Text;
+  phones @3 :List(PhoneNumber);
+
+  struct PhoneNumber {
+    number @0 :Text;
+    type @1 :Type;
+
+    enum Type {
+      mobile @0;
+      home @1;
+      work @2;
+    }
+  }
+
+  employment :union {
+    unemployed @4 :Void;
+    employer @5 :Text;
+    school @6 :Text;
+    selfEmployed @7 :Void;
+    # We assume that a person is only one of these.
+  }
+}
+
+struct AddressBook {
+  people @0 :List(Person);
+}
+</code></pre>
+
+<p>Then, after running the schema compiler,
+we can then use those types from Java like this:</p>
+
+<p><figure class="highlight"><pre><code class="language-java" data-lang="java"><span class="kn">package</span> <span class="n">org</span><span class="o">.</span><span class="na">capnproto</span><span class="o">.</span><span class="na">examples</span><span class="o">;</span></p>
+
+<p><span class="kn">import</span> <span class="nn">org.capnproto.StructList</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.capnproto.examples.Addressbook.AddressBook</span><span class="o">;</span>
+<span class="kn">import</span> <span class="nn">org.capnproto.examples.Addressbook.Person</span><span class="o">;</span></p>
+
+<p><span class="kd">public</span> <span class="kd">class</span> <span class="nc">AddressbookMain</span> <span class="o">{</span></p>
+
+<p>  <span class="kd">public</span> <span class="kd">static</span> <span class="kt">void</span> <span class="n">writeAddressBook</span><span class="o">()</span> <span class="kd">throws</span> <span class="n">java</span><span class="o">.</span><span class="na">io</span><span class="o">.</span><span class="na">IOException</span> <span class="o">{</span>
+    <span class="n">org</span><span class="o">.</span><span class="na">capnproto</span><span class="o">.</span><span class="na">MessageBuilder</span> <span class="n">message</span> <span class="o">=</span>
+      <span class="k">new</span> <span class="n">org</span><span class="o">.</span><span class="na">capnproto</span><span class="o">.</span><span class="na">MessageBuilder</span><span class="o">();</span></p>
+
+<pre><code>&lt;span class="n"&gt;AddressBook&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;Builder&lt;/span&gt; &lt;span class="n"&gt;addressbook&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt;
+  &lt;span class="n"&gt;message&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;initRoot&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="n"&gt;AddressBook&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;factory&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+
+&lt;span class="n"&gt;StructList&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;Builder&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="n"&gt;Person&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;Builder&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt; &lt;span class="n"&gt;people&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt;
+  &lt;span class="n"&gt;addressbook&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;initPeople&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+
+&lt;span class="n"&gt;Person&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;Builder&lt;/span&gt; &lt;span class="n"&gt;alice&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;people&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;get&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+&lt;span class="n"&gt;alice&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;setId&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;123&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+&lt;span class="n"&gt;alice&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;setName&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="s"&gt;"Alice"&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+&lt;span class="n"&gt;alice&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;setEmail&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="s"&gt;"alice@example.com"&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+
+&lt;span class="n"&gt;StructList&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;Builder&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="n"&gt;Person&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;PhoneNumber&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;Builder&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt; &lt;span class="n"&gt;alicePhones&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt;
+  &lt;span class="n"&gt;alice&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;initPhones&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+&lt;span class="n"&gt;alicePhones&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;get&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="o"&gt;).&lt;/span&gt;&lt;span class="na"&gt;setNumber&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="s"&gt;"555-1212"&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+&lt;span class="n"&gt;alicePhones&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;get&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="o"&gt;).&lt;/span&gt;&lt;span class="na"&gt;setType&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="n"&gt;Person&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;PhoneNumber&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;Type&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;MOBILE&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+&lt;span class="n"&gt;alice&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;getEmployment&lt;/span&gt;&lt;span class="o"&gt;().&lt;/span&gt;&lt;span class="na"&gt;setSchool&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="s"&gt;"MIT"&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+
+&lt;span class="n"&gt;Person&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;Builder&lt;/span&gt; &lt;span class="n"&gt;bob&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;people&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;get&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+&lt;span class="n"&gt;bob&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;setId&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;456&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+&lt;span class="n"&gt;bob&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;setName&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="s"&gt;"Bob"&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+&lt;span class="n"&gt;bob&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;setEmail&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="s"&gt;"bob@example.com"&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+&lt;span class="n"&gt;StructList&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;Builder&lt;/span&gt;&lt;span class="o"&gt;&amp;lt;&lt;/span&gt;&lt;span class="n"&gt;Person&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;PhoneNumber&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;Builder&lt;/span&gt;&lt;span class="o"&gt;&amp;gt;&lt;/span&gt; &lt;span class="n"&gt;bobPhones&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt;
+  &lt;span class="n"&gt;bob&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;initPhones&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+&lt;span class="n"&gt;bobPhones&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;get&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="o"&gt;).&lt;/span&gt;&lt;span class="na"&gt;setNumber&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="s"&gt;"555-4567"&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+&lt;span class="n"&gt;bobPhones&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;get&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="o"&gt;).&lt;/span&gt;&lt;span class="na"&gt;setType&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="n"&gt;Person&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;PhoneNumber&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;Type&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;HOME&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+&lt;span class="n"&gt;bobPhones&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;get&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="o"&gt;).&lt;/span&gt;&lt;span class="na"&gt;setNumber&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="s"&gt;"555-7654"&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+&lt;span class="n"&gt;bobPhones&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;get&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="o"&gt;).&lt;/span&gt;&lt;span class="na"&gt;setType&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="n"&gt;Person&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;PhoneNumber&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;Type&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;WORK&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+&lt;span class="n"&gt;bob&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;getEmployment&lt;/span&gt;&lt;span class="o"&gt;().&lt;/span&gt;&lt;span class="na"&gt;setUnemployed&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="n"&gt;org&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;capnproto&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;Void&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;VOID&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+
+&lt;span class="n"&gt;org&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;capnproto&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;SerializePacked&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;writeToUnbuffered&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;
+  &lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="k"&gt;new&lt;/span&gt; &lt;span class="n"&gt;java&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;io&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;FileOutputStream&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;
+    &lt;span class="n"&gt;java&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;io&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;FileDescriptor&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;out&lt;/span&gt;&lt;span class="o"&gt;)).&lt;/span&gt;&lt;span class="na"&gt;getChannel&lt;/span&gt;&lt;span class="o"&gt;(),&lt;/span&gt;
+  &lt;span class="n"&gt;message&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+</code></pre>
+
+<p>  <span class="o">}</span></p>
+
+<p>  <span class="kd">public</span> <span class="kd">static</span> <span class="kt">void</span> <span class="n">printAddressBook</span><span class="o">()</span> <span class="kd">throws</span> <span class="n">java</span><span class="o">.</span><span class="na">io</span><span class="o">.</span><span class="na">IOException</span> <span class="o">{</span>
+    <span class="n">org</span><span class="o">.</span><span class="na">capnproto</span><span class="o">.</span><span class="na">MessageReader</span> <span class="n">message</span> <span class="o">=</span>
+      <span class="n">org</span><span class="o">.</span><span class="na">capnproto</span><span class="o">.</span><span class="na">SerializePacked</span><span class="o">.</span><span class="na">readFromUnbuffered</span><span class="o">(</span>
+        <span class="o">(</span><span class="k">new</span> <span class="n">java</span><span class="o">.</span><span class="na">io</span><span class="o">.</span><span class="na">FileInputStream</span><span class="o">(</span>
+          <span class="n">java</span><span class="o">.</span><span class="na">io</span><span class="o">.</span><span class="na">FileDescriptor</span><span class="o">.</span><span class="na">in</span><span class="o">)).</span><span class="na">getChannel</span><span class="o">());</span></p>
+
+<pre><code>&lt;span class="n"&gt;AddressBook&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;Reader&lt;/span&gt; &lt;span class="n"&gt;addressbook&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt;
+  &lt;span class="n"&gt;message&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;getRoot&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="n"&gt;AddressBook&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;factory&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+
+&lt;span class="k"&gt;for&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="n"&gt;Person&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;Reader&lt;/span&gt; &lt;span class="n"&gt;person&lt;/span&gt; &lt;span class="o"&gt;:&lt;/span&gt; &lt;span class="n"&gt;addressbook&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;getPeople&lt;/span&gt;&lt;span class="o"&gt;())&lt;/span&gt; &lt;span class="o"&gt;{&lt;/span&gt;
+  &lt;span class="n"&gt;System&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;out&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;println&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="n"&gt;person&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;getName&lt;/span&gt;&lt;span class="o"&gt;()&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="s"&gt;": "&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;person&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;getEmail&lt;/span&gt;&lt;span class="o"&gt;());&lt;/span&gt;
+
+  &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="n"&gt;Person&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;PhoneNumber&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;Reader&lt;/span&gt; &lt;span class="n"&gt;phone&lt;/span&gt; &lt;span class="o"&gt;:&lt;/span&gt; &lt;span class="n"&gt;person&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;getPhones&lt;/span&gt;&lt;span class="o"&gt;())&lt;/span&gt; &lt;span class="o"&gt;{&lt;/span&gt;
+    &lt;span class="n"&gt;String&lt;/span&gt; &lt;span class="n"&gt;typeName&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s"&gt;"UNKNOWN"&lt;/span&gt;&lt;span class="o"&gt;;&lt;/span&gt;
+    &lt;span class="k"&gt;switch&lt;/span&gt; &lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="n"&gt;phone&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;getType&lt;/span&gt;&lt;span class="o"&gt;())&lt;/span&gt; &lt;span class="o"&gt;{&lt;/span&gt;
+    &lt;span class="k"&gt;case&lt;/span&gt; &lt;span class="nl"&gt;MOBILE:&lt;/span&gt;
+      &lt;span class="n"&gt;typeName&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s"&gt;"mobile"&lt;/span&gt;&lt;span class="o"&gt;;&lt;/span&gt; &lt;span class="k"&gt;break&lt;/span&gt;&lt;span class="o"&gt;;&lt;/span&gt;
+    &lt;span class="k"&gt;case&lt;/span&gt; &lt;span class="nl"&gt;HOME:&lt;/span&gt;
+      &lt;span class="n"&gt;typeName&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s"&gt;"home"&lt;/span&gt;&lt;span class="o"&gt;;&lt;/span&gt; &lt;span class="k"&gt;break&lt;/span&gt;&lt;span class="o"&gt;;&lt;/span&gt;
+    &lt;span class="k"&gt;case&lt;/span&gt; &lt;span class="nl"&gt;WORK:&lt;/span&gt;
+      &lt;span class="n"&gt;typeName&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s"&gt;"work"&lt;/span&gt;&lt;span class="o"&gt;;&lt;/span&gt; &lt;span class="k"&gt;break&lt;/span&gt;&lt;span class="o"&gt;;&lt;/span&gt;
+    &lt;span class="o"&gt;}&lt;/span&gt;
+    &lt;span class="n"&gt;System&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;out&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;println&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="s"&gt;"  "&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;typeName&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="s"&gt;" phone: "&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt;
+                       &lt;span class="n"&gt;phone&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;getNumber&lt;/span&gt;&lt;span class="o"&gt;());&lt;/span&gt;
+  &lt;span class="o"&gt;}&lt;/span&gt;
+
+  &lt;span class="n"&gt;Person&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;Employment&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;Reader&lt;/span&gt; &lt;span class="n"&gt;employment&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;person&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;getEmployment&lt;/span&gt;&lt;span class="o"&gt;();&lt;/span&gt;
+  &lt;span class="k"&gt;switch&lt;/span&gt; &lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="n"&gt;employment&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;which&lt;/span&gt;&lt;span class="o"&gt;())&lt;/span&gt; &lt;span class="o"&gt;{&lt;/span&gt;
+  &lt;span class="k"&gt;case&lt;/span&gt; &lt;span class="nl"&gt;UNEMPLOYED:&lt;/span&gt;
+    &lt;span class="n"&gt;System&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;out&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;println&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="s"&gt;"  unemployed"&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+    &lt;span class="k"&gt;break&lt;/span&gt;&lt;span class="o"&gt;;&lt;/span&gt;
+  &lt;span class="k"&gt;case&lt;/span&gt; &lt;span class="nl"&gt;EMPLOYER:&lt;/span&gt;
+    &lt;span class="n"&gt;System&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;out&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;println&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="s"&gt;"  employer: "&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;employment&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;getEmployer&lt;/span&gt;&lt;span class="o"&gt;());&lt;/span&gt;
+    &lt;span class="k"&gt;break&lt;/span&gt;&lt;span class="o"&gt;;&lt;/span&gt;
+  &lt;span class="k"&gt;case&lt;/span&gt; &lt;span class="nl"&gt;SCHOOL:&lt;/span&gt;
+    &lt;span class="n"&gt;System&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;out&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;println&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="s"&gt;"  student at: "&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;employment&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;getSchool&lt;/span&gt;&lt;span class="o"&gt;());&lt;/span&gt;
+    &lt;span class="k"&gt;break&lt;/span&gt;&lt;span class="o"&gt;;&lt;/span&gt;
+  &lt;span class="k"&gt;case&lt;/span&gt; &lt;span class="nl"&gt;SELF_EMPLOYED:&lt;/span&gt;
+    &lt;span class="n"&gt;System&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;out&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="na"&gt;println&lt;/span&gt;&lt;span class="o"&gt;(&lt;/span&gt;&lt;span class="s"&gt;"  self-employed"&lt;/span&gt;&lt;span class="o"&gt;);&lt;/span&gt;
+    &lt;span class="k"&gt;break&lt;/span&gt;&lt;span class="o"&gt;;&lt;/span&gt;
+  &lt;span class="k"&gt;default&lt;/span&gt; &lt;span class="o"&gt;:&lt;/span&gt;
+    &lt;span class="k"&gt;break&lt;/span&gt;&lt;span class="o"&gt;;&lt;/span&gt;
+  &lt;span class="o"&gt;}&lt;/span&gt;
+&lt;span class="o"&gt;}&lt;/span&gt;
+</code></pre>
+
+<p>  <span class="o">}</span></p>
+
+<p>  <span class="kd">public</span> <span class="kd">static</span> <span class="kt">void</span> <span class="n">usage</span><span class="o">()</span> <span class="o">{</span>
+    <span class="n">System</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">println</span><span class="o">(</span><span class="s">"usage: addressbook [write | read]"</span><span class="o">);</span>
+  <span class="o">}</span></p>
+
+<p>  <span class="kd">public</span> <span class="kd">static</span> <span class="kt">void</span> <span class="n">main</span><span class="o">(</span><span class="n">String</span><span class="o">[]</span> <span class="n">args</span><span class="o">)</span> <span class="o">{</span>
+    <span class="k">try</span> <span class="o">{</span>
+      <span class="k">if</span> <span class="o">(</span><span class="n">args</span><span class="o">.</span><span class="na">length</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="o">)</span> <span class="o">{</span>
+        <span class="n">usage</span><span class="o">();</span>
+      <span class="o">}</span> <span class="k">else</span> <span class="k">if</span> <span class="o">(</span><span class="n">args</span><span class="o">[</span><span class="mi">0</span><span class="o">].</span><span class="na">equals</span><span class="o">(</span><span class="s">"write"</span><span class="o">))</span> <span class="o">{</span>
+        <span class="n">writeAddressBook</span><span class="o">();</span>
+      <span class="o">}</span> <span class="k">else</span> <span class="k">if</span> <span class="o">(</span><span class="n">args</span><span class="o">[</span><span class="mi">0</span><span class="o">].</span><span class="na">equals</span><span class="o">(</span><span class="s">"read"</span><span class="o">))</span> <span class="o">{</span>
+        <span class="n">printAddressBook</span><span class="o">();</span>
+      <span class="o">}</span> <span class="k">else</span> <span class="o">{</span>
+        <span class="n">usage</span><span class="o">();</span>
+      <span class="o">}</span>
+    <span class="o">}</span> <span class="k">catch</span> <span class="o">(</span><span class="n">java</span><span class="o">.</span><span class="na">io</span><span class="o">.</span><span class="na">IOException</span> <span class="n">e</span><span class="o">)</span> <span class="o">{</span>
+      <span class="n">System</span><span class="o">.</span><span class="na">out</span><span class="o">.</span><span class="na">println</span><span class="o">(</span><span class="s">"io exception: "</span>  <span class="o">+</span> <span class="n">e</span><span class="o">);</span>
+    <span class="o">}</span>
+  <span class="o">}</span>
+<span class="o">}</span></code></pre></figure></p>
+
+<p>To read a message:</p>
+
+<pre><code>$ echo '(people = [(id = 123, name = "Alice",' \
+'email = "alice@example.com", employment = (school = "MIT"))])' \
+| capnp encode --packed examples/src/main/schema/addressbook.capnp \
+AddressBook \
+| java -cp runtime/target/classes:examples/target/classes \
+org.capnproto.examples.AddressbookMain read
+</code></pre>
+
+<p>To write a message:</p>
+
+<pre><code>$ java -cp runtime/target/classes:examples/target/classes \
+org.capnproto.examples.AddressbookMain write \
+| capnp decode --packed examples/src/main/schema/addressbook.capnp \
+AddressBook
+</code></pre>
+
+<h2>API</h2>
+
+<p>The classes and methods provided by the
+Java runtime and generated code
+correspond directly to those
+provided by the
+<a href="https://capnproto.org/cxx.html">C++ implementation</a>,
+with just a few adjustments.</p>
+
+<ul>
+<li><p>Java does not have unsigned integer types, so a <code>UInt64</code>
+in a schema gets mapped to a <code>long</code> in Java, a <code>UInt32</code> gets
+mapped to an <code>int</code> in Java, and so on.
+You are responsible for correctly handling
+arithmetic on values of these types. Note that Java 8 has
+standard functions that can help with this.</p></li>
+<li><p>Because Java generics don't get monomorphized at compile time
+like C++ templates do, generic methods
+need to have an additional <em>factory</em> argument to
+allow the proper dispatch to occur.
+<code>MessageReader.getRoot()</code> and <code>MessageBuilder.initRoot()</code> are two examples,
+as shown above.</p></li>
+</ul>
+
+
+<h2>Tips</h2>
+
+<ul>
+<li>The main I/O methods in
+<code>Serialize</code> and <code>SerializePacked</code> are written in terms
+of <code>WritableByteChannel</code> and <code>ReadableByteChannel</code>.
+You should be very careful if you try to convert a
+<code>java.io.OutputStream</code>
+to a <code>WritableByteChannel</code> with the
+<code>java.nio.channels.Channels.newChannel()</code> method.
+If your <code>OutputStream</code> was buffered, the new channel-based
+wrapper of it will have no way to flush it!
+Note that the stream returned by <code>Process.getOutputStream()</code> is buffered.</li>
+</ul>
+
+
+<h2>Future Work</h2>
+
+<p>There's a lot left to do, and we'd love to have your help! Here are some missing pieces:</p>
+
+<ul>
+<li><a href="https://capnproto.org/cxx.html#orphans">Orphans</a>.</li>
+<li><a href="https://capnproto.org/cxx.html#dynamic-reflection">Dynamic reflection</a>.</li>
+<li>Optimizations, e.g. iterators for <code>StructList</code> that update in place instead of allocating for each element.</li>
+<li>Improvements for build and packaging, e.g. getting a distribution on Maven.</li>
+<li>The entire <a href="https://capnproto.org/rpc.html">object-capability RPC layer</a>.</li>
+</ul>
+
+
+    <!-- FOOTER  -->
+    <div id="footer_wrap" class="outer">
+      <footer class="inner">
+        <p class="copyright">capnproto-java is maintained by <a href="https://github.com/dwrensha">David Renshaw</a></p>
+      </footer>
+    </div>
+
+  </body>
+</html>
+
