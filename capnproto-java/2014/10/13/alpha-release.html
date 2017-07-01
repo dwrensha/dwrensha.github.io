@@ -41,11 +41,11 @@ capnproto-java alpha release with benchmarks
 <p>
 
 
-<p>I'm happy to announce that
+<p>I’m happy to announce that
 <a href="https://github.com/dwrensha/capnproto-java">capnproto-java</a> is now a
 mostly complete implementation of
-the <a href="http://capnproto.org">Cap'n Proto</a> serialization protocol.
-It supports all of the data features of the Cap'n Proto schema language,
+the <a href="http://capnproto.org">Cap’n Proto</a> serialization protocol.
+It supports all of the data features of the Cap’n Proto schema language,
 including constants, default values, and arbitrarily nested list types.
 Moreover, the runtime and the generated code consist entirely
 of platform-independent, safe Java code.</p>
@@ -55,7 +55,7 @@ of platform-independent, safe Java code.</p>
 and
 <a href="http://pelzlpj.github.io/capnp-ocaml/2014/09/02/capnp-ocaml-2.0/">OCaml</a>
 implementations,
-I've made some informal measurements
+I’ve made some informal measurements
 with the <a href="https://github.com/kentonv/capnproto/tree/master/c%2B%2B/src/benchmark">usual</a>
 toy benchmark suite.
 The results show
@@ -69,13 +69,13 @@ heap allocations and redundant bounds-checking
 on the JVM.</p>
 
 <p>I ran each of the three benchmark cases
-in five modes. In the "object" mode,
+in five modes. In the “object” mode,
 the data is passed in-process without any copying.
-In the "bytes" mode, the data
+In the “bytes” mode, the data
 is written to a flat array and then re-read in-process.
-In the "pipe" mode, the data is passed
+In the “pipe” mode, the data is passed
 as a byte stream between separate processes.
-In the "packed" sub-modes,
+In the “packed” sub-modes,
 a <a href="https://capnproto.org/encoding.html#packing">compression scheme</a>
 is applied to the bytes before they are passed.</p>
 
@@ -87,29 +87,26 @@ in the previous Rust vs. C++ benchmarks.</p>
 
 <p>Here are the results.</p>
 
-<p><img src="/capnproto-java/assets/carsales.png"
-     width="500"/></p>
+<p><img src="/capnproto-java/assets/carsales.png" width="500" /></p>
 
 <p>The CarSales case does a lot of
 iteration through lists of structs.
-One way to improve Java's performance here
+One way to improve Java’s performance here
 might be to implement list iterators
-that update in-place, so that we don't
-need to allocate a new <code>StructReader</code> for each
+that update in-place, so that we don’t
+need to allocate a new <code class="highlighter-rouge">StructReader</code> for each
 member of a list.</p>
 
-<p><img src="/capnproto-java/assets/catrank.png"
-     width="500"/></p>
+<p><img src="/capnproto-java/assets/catrank.png" width="500" /></p>
 
 <p>The CatRank case emphasizes string processing.
 One big difficulty faced by Java here is that
 it uses UTF-16 encoding, while
-Cap'n Proto uses UTF-8;
+Cap’n Proto uses UTF-8;
 translating between the two requires
 significant copying of memory.</p>
 
-<p><img src="/capnproto-java/assets/eval.png"
-     width="500"/></p>
+<p><img src="/capnproto-java/assets/eval.png" width="500" /></p>
 
 <p>The Eval case seems to confirm that packing
 costs proportionally more for Java
