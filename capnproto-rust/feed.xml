@@ -79,7 +79,7 @@ that I later added to the capnproto-rust test suite to cover the new functionali
                         <item>
                                 <title>capnp-rpc-rust now uses futures-rs</title>
                                 <description>&lt;p&gt;The concurrency story of
-&lt;a href=&quot;https://github.com/dwrensha/capnp-rpc-rust&quot;&gt;capnp-rpc-rust&lt;/a&gt;
+&lt;a href=&quot;https://crates.io/crates/capnp-rpc&quot;&gt;capnp-rpc-rust&lt;/a&gt;
 gets a major update in today’s version 0.8 release.
 Previously, the remote procedure call system was built
 on top of &lt;a href=&quot;https://github.com/dwrensha/gj&quot;&gt;GJ&lt;/a&gt;,
@@ -393,7 +393,7 @@ to form a new promise which can then be returned from the outer method.&lt;/p&gt
 
 &lt;p&gt;To see more concretely what this kind of thing looks like,
 take a look at the
-&lt;a href=&quot;https://github.com/dwrensha/capnp-rpc-rust/tree/master/examples/calculator&quot;&gt;calculator example&lt;/a&gt;,
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/tree/master/capnp-rpc/examples/calculator&quot;&gt;calculator example&lt;/a&gt;,
 which also showcases some fancier features.
 There are also some more-practical examples
 in the form of &lt;a href=&quot;https://sandstorm.io&quot;&gt;Sandstorm&lt;/a&gt; apps:
