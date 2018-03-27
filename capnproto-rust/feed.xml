@@ -844,6 +844,10 @@ in our generated accessor methods, suppose that we also define this type in our 
 &lt;p&gt;If &lt;code class=&quot;highlighter-rouge&quot;&gt;init_blob()&lt;/code&gt; instead took a &lt;code class=&quot;highlighter-rouge&quot;&gt;&amp;amp;mut self&lt;/code&gt; parameter, this function would fail to typecheck
 because the &lt;code class=&quot;highlighter-rouge&quot;&gt;foo::Builder&lt;/code&gt; returned by &lt;code class=&quot;highlighter-rouge&quot;&gt;bar.init_one_foo()&lt;/code&gt; does not live long enough.&lt;/p&gt;
 
+&lt;h4 id=&quot;update-26-march-2018-a-nameupdatea&quot;&gt;update (26 March 2018) &lt;a name=&quot;update&quot;&gt;&lt;/a&gt;&lt;/h4&gt;
+&lt;p&gt;The &lt;code class=&quot;highlighter-rouge&quot;&gt;borrow()&lt;/code&gt; method has been &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/pull/91/commits/aafa9514c7ff37b0702d45b42bd129d6e39e99c8&quot;&gt;renamed&lt;/a&gt;
+to &lt;code class=&quot;highlighter-rouge&quot;&gt;reborrow()&lt;/code&gt;.&lt;/p&gt;
+
 </description>
                                 <pubDate>Sat, 27 Dec 2014 00:00:00 -0500</pubDate>
                                 <link>http://dwrensha.github.io/capnproto-rust/2014/12/27/custom-mutable-references.html</link>

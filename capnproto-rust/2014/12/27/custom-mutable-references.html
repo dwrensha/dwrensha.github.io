@@ -180,6 +180,10 @@ in our generated accessor methods, suppose that we also define this type in our 
 <p>If <code class="highlighter-rouge">init_blob()</code> instead took a <code class="highlighter-rouge">&amp;mut self</code> parameter, this function would fail to typecheck
 because the <code class="highlighter-rouge">foo::Builder</code> returned by <code class="highlighter-rouge">bar.init_one_foo()</code> does not live long enough.</p>
 
+<h4 id="update-26-march-2018-a-nameupdatea">update (26 March 2018) <a name="update"></a></h4>
+<p>The <code class="highlighter-rouge">borrow()</code> method has been <a href="https://github.com/capnproto/capnproto-rust/pull/91/commits/aafa9514c7ff37b0702d45b42bd129d6e39e99c8">renamed</a>
+to <code class="highlighter-rouge">reborrow()</code>.</p>
+
 
 
 <p class="author">
