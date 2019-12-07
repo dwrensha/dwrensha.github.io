@@ -1,0 +1,63 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title> async/await </title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<link rel="stylesheet" href="/capnproto-rust/css/main.css" type="text/css" />
+<link rel="stylesheet" href="/capnproto-rust/css/syntax.css" type="text/css" />
+<link rel="shortcut icon" href="/capnproto-rust/favicon.png">
+</head>
+<body>
+<p>
+06 Dec 2019
+<p>
+
+<p>Today I’m releasing version 0.11.0 of capnproto-rust,
+with support for
+<a href="https://blog.rust-lang.org/2019/11/07/Async-await-stable.html">async/await</a>!
+The updated RPC system works with any futures-0.3-enabled executor
+(e.g. tokio, async-std) – you just need to provide it
+with objects that implement the <code class="highlighter-rouge">futures::io::AsyncRead</code> and <code class="highlighter-rouge">futures::io::AsyncWrite</code> traits.</p>
+
+<p>The stabilization of <code class="highlighter-rouge">std::future::Future</code> allowed me to eliminate
+an annoying
+<a href="https://github.com/capnproto/capnproto-rust/commit/0e825eecbf2337d1fb2caed015bfa4862a195d40#diff-c0b507abb73596f7f82a1c80ac680e54L31">optional dependecy</a>
+on futures-0.1
+in the base <code class="highlighter-rouge">capnp</code> crate, and in general the update allowed me to
+<a href="https://github.com/capnproto/capnproto-rust/commit/0e825eecbf2337d1fb2caed015bfa4862a195d40">delete a lot of code</a>.</p>
+
+<p>In my experience, async/await can vastly simplify concurrent programming,
+especially in the case where you have a single-threaded event loop
+and you want to share mutable data among multiple tasks.</p>
+
+<p>Probably the hardest part of this update was wrapping my head around <code class="highlighter-rouge">Pin&lt;T&gt;</code>.
+My biggest takeaway message on that topic is:
+if you get into trouble, try wrapping your object with <code class="highlighter-rouge">Box::pin()</code>.
+Curiously, doing so will give you an object that is <code class="highlighter-rouge">Unpin</code> – which is often
+exactly what you need!</p>
+
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+
+<div>
+ <a href="https://www.github.com/dwrensha/capnproto-rust">
+   capnproto-rust on github
+ </a>
+</div>
+
+<div>
+ <a href="/capnproto-rust/index.html">
+   more posts
+ </a>
+</div>
+
+<a href="/capnproto-rust/feed.xml">
+<img src="/capnproto-rust/assets/rss.png"
+     width="14"/>
+</a>
+
+
+</body>
