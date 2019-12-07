@@ -7,6 +7,38 @@
                 <atom:link href="http://dwrensha.github.io/capnproto-rust/feed.xml" rel="self" type="application/rss+xml" />
                 
                         <item>
+                                <title>async/await</title>
+                                <description>&lt;p&gt;Today I’m releasing version 0.11.0 of capnproto-rust,
+with support for
+&lt;a href=&quot;https://blog.rust-lang.org/2019/11/07/Async-await-stable.html&quot;&gt;async/await&lt;/a&gt;!
+The updated RPC system works with any futures-0.3-enabled executor
+(e.g. tokio, async-std) – you just need to provide it
+with objects that implement the &lt;code class=&quot;highlighter-rouge&quot;&gt;futures::io::AsyncRead&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;futures::io::AsyncWrite&lt;/code&gt; traits.&lt;/p&gt;
+
+&lt;p&gt;The stabilization of &lt;code class=&quot;highlighter-rouge&quot;&gt;std::future::Future&lt;/code&gt; allowed me to eliminate
+an annoying
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/commit/0e825eecbf2337d1fb2caed015bfa4862a195d40#diff-c0b507abb73596f7f82a1c80ac680e54L31&quot;&gt;optional dependecy&lt;/a&gt;
+on futures-0.1
+in the base &lt;code class=&quot;highlighter-rouge&quot;&gt;capnp&lt;/code&gt; crate, and in general the update allowed me to
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/commit/0e825eecbf2337d1fb2caed015bfa4862a195d40&quot;&gt;delete a lot of code&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;In my experience, async/await can vastly simplify concurrent programming,
+especially in the case where you have a single-threaded event loop
+and you want to share mutable data among multiple tasks.&lt;/p&gt;
+
+&lt;p&gt;Probably the hardest part of this update was wrapping my head around &lt;code class=&quot;highlighter-rouge&quot;&gt;Pin&amp;lt;T&amp;gt;&lt;/code&gt;.
+My biggest takeaway message on that topic is:
+if you get into trouble, try wrapping your object with &lt;code class=&quot;highlighter-rouge&quot;&gt;Box::pin()&lt;/code&gt;.
+Curiously, doing so will give you an object that is &lt;code class=&quot;highlighter-rouge&quot;&gt;Unpin&lt;/code&gt; – which is often
+exactly what you need!&lt;/p&gt;
+
+</description>
+                                <pubDate>Fri, 06 Dec 2019 00:00:00 -0500</pubDate>
+                                <link>http://dwrensha.github.io/capnproto-rust/2019/12/06/async-await.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2019/12/06/async-await.html</guid>
+                        </item>
+                
+                        <item>
                                 <title>cargo-fuzz findings</title>
                                 <description>&lt;p&gt;After the
 &lt;a href=&quot;https://www.reddit.com/r/rust/comments/5va0mi/cargofuzz_an_easy_way_to_fuzz_your_crates/&quot;&gt;announcement&lt;/a&gt;
@@ -518,10 +550,10 @@ For example:&lt;/p&gt;
        &lt;span class=&quot;c&quot;&gt;// The connection has succeeded. Let&#39;s write some data.&lt;/span&gt;
        &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;Ok&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stream&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.write&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nd&quot;&gt;vec!&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]));&lt;/span&gt;
     &lt;span class=&quot;p&quot;&gt;})&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.then&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(|(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stream&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)|&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-       &lt;span class=&quot;c&quot;&gt;// The the first write has succeeded. Let&#39;s write some more.&lt;/span&gt;
+       &lt;span class=&quot;c&quot;&gt;// The first write has succeeded. Let&#39;s write some more.&lt;/span&gt;
        &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;Ok&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stream&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.write&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nd&quot;&gt;vec!&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;4&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;5&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;6&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]));&lt;/span&gt;
     &lt;span class=&quot;p&quot;&gt;})&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.then&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(|(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stream&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)|&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-       &lt;span class=&quot;c&quot;&gt;// The the second write has succeeded. Let&#39;s just return;&lt;/span&gt;
+       &lt;span class=&quot;c&quot;&gt;// The second write has succeeded. Let&#39;s just return;&lt;/span&gt;
        &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;Ok&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;gj&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;Promise&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;fulfilled&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(()));&lt;/span&gt;
     &lt;span class=&quot;p&quot;&gt;});&lt;/span&gt;
 &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
@@ -666,7 +698,7 @@ we can easily accomplish that using the &lt;code class=&quot;highlighter-rouge&q
 &lt;p&gt;A year ago when I wrote the previous post on error handling,
 the main reason that I decided not to go with return-value-based
 error handling was that I thought it felt too heavyweight.
-My sense now is that the the &lt;code class=&quot;highlighter-rouge&quot;&gt;try!()&lt;/code&gt; macro and &lt;code class=&quot;highlighter-rouge&quot;&gt;FromError&lt;/code&gt; trait
+My sense now is that the &lt;code class=&quot;highlighter-rouge&quot;&gt;try!()&lt;/code&gt; macro and &lt;code class=&quot;highlighter-rouge&quot;&gt;FromError&lt;/code&gt; trait
 can make things quite usable.&lt;/p&gt;
 </description>
                                 <pubDate>Sat, 21 Mar 2015 00:00:00 -0400</pubDate>
@@ -1017,158 +1049,6 @@ of both approaches, but would likely add considerable complexity.&lt;/p&gt;
                                 <pubDate>Sun, 01 Jun 2014 00:00:00 -0400</pubDate>
                                 <link>http://dwrensha.github.io/capnproto-rust/2014/06/01/libserialize-traits.html</link>
                                 <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2014/06/01/libserialize-traits.html</guid>
-                        </item>
-                
-                        <item>
-                                <title>error handling</title>
-                                <description>&lt;p&gt;I’ve recently made some significant changes
-to how &lt;a href=&quot;https://www.github.com/dwrensha/capnproto-rust&quot;&gt;capnproto-rust&lt;/a&gt;
-handles malformed values.
-In the old
-version, a task would fail when
-it encountered a bad input.
-In the new version, it instead
-falls back to a default value
-and logs an error.
-(edit: this is no longer exactly true; see &lt;a href=&quot;#update&quot;&gt;update&lt;/a&gt; below.)&lt;/p&gt;
-
-&lt;p&gt;The changes allow capnproto-rust
-to fit more nicely
-within Rust’s mechanisms for
-memory safety,
-and I think they
-highlight an interesting comparison point between
-Rust and C++.&lt;/p&gt;
-
-&lt;p&gt;Recall that
-a value in &lt;a href=&quot;http://kentonv.github.io/capnproto/&quot;&gt;Cap’n Proto&lt;/a&gt; is just a
-segmented sequence of bytes,
-with exactly the same format
-whether it’s on the wire, on
-disk, or in memory.
-This uniformity of representation
-means there
-is no encode/decode step,
-which in turn allows
-Cap’n-Proto-based communication
-to be
-extremely fast.&lt;/p&gt;
-
-&lt;p&gt;Note, however, that
-not all segmented sequences of bytes
-are valid values,
-and one consequence of
-not having a decode step
-is that
-any
-validation must occur on the fly.
-As you traverse a
-sequence of bytes,
-you might discover something
-wrong with it.
-For example, you might find a struct
-where you were expecting a list.&lt;/p&gt;
-
-&lt;p&gt;What do you do then?&lt;/p&gt;
-
-&lt;p&gt;The
-&lt;a href=&quot;https://www.github.com/kentonv/capnproto&quot;&gt;C++ implementation&lt;/a&gt;
-by default
-throws an exception.
-This lets you know immediately when something goes wrong
-and avoids the need for verbose
-explicit error handling.
-If you want to be robust while reading messages from untrusted sources,
-you can catch and recover from these exceptions.
-For example, you might terminate the sender’s connection
-and then resume with your handling
-of messages from other sources.&lt;/p&gt;
-
-&lt;p&gt;I originally imagined that capnproto-rust
-ought to work in roughly the same way,
-with Rust task failure
-as a drop-in replacement for
-C++ exceptions.
-However, as tempting as that approach may seem, it
-hits a serious hurdle: Rust’s type system.
-Rust guarantees
-that a task can only mutate
-data it owns or is currently borrowing,
-and all such data is wiped out when a task fails.
-Therefore, you would not be
-able to put any important cumulative state
-in a task that reads untrusted Cap’n Proto messages.
-Instead, you would often be forced to have a separate
-task that sanitizes data from Cap’n Proto messages,
-largely defeating
-the purpose of having no decode step.&lt;/p&gt;
-
-&lt;p&gt;At first glance, it may seem that Rust is being
-overly restrictive here. What would be so bad
-about letting us recover
-some of our data after a &lt;code class=&quot;highlighter-rouge&quot;&gt;fail!()&lt;/code&gt;?
-The problem
-is that it’s difficult
-to know statically &lt;em&gt;which&lt;/em&gt;
-parts of the
-data are safe to recover.
-After all, the reason for the failure
-was probably that some internal invariant
-was broken.
-This is true for C++ exceptions as well, but
-C++ lets you shoot yourself in the foot.
-Rust chooses a simple, restrictive policy that
-guarantees safety. C++ chooses a simple,
-permissive policy that demands care from the programmer.&lt;/p&gt;
-
-&lt;p&gt;So where does that leave us?&lt;/p&gt;
-
-&lt;p&gt;A perhaps more idiomatic way to structure the Rust implementation would be
-to have
-any possibly-failing read operation explicitly return
-a &lt;code class=&quot;highlighter-rouge&quot;&gt;Result&amp;lt;T,DecodeError&amp;gt;&lt;/code&gt;.
-You could then wrap all read operations in a
-&lt;code class=&quot;highlighter-rouge&quot;&gt;DecodeResult&amp;lt;T&amp;gt;&lt;/code&gt; monad, much like the &lt;code class=&quot;highlighter-rouge&quot;&gt;IoResult&amp;lt;T&amp;gt;&lt;/code&gt; monad.
-This is the first thing I tried. It works, but it feels too heavyweight.&lt;/p&gt;
-
-&lt;p&gt;Instead, I think the best solution for the Rust implementation
-is to log an error and fall back to a default value
-when invalid input is detected.
-The C++ implementation
-has long supported this mode of operation,
-as an opt-in feature.
-Traversing Cap’n Proto message remains
-nearly as convenient as traversing a
-native struct,
-and you don’t ever have to
-reason about exceptional control flow
-or broken internal invariants.&lt;/p&gt;
-
-&lt;p&gt;Finally, note that if we ever want the old behavior back,
-it would be easy to add a compile-time option
-that would, as before, trigger task failure on malformed
-input. If all messages are from trusted sources, this may be
-a sensible option.&lt;/p&gt;
-
-&lt;h4 id=&quot;update-7-april-2014-a-nameupdatea&quot;&gt;update (7 April 2014) &lt;a name=&quot;update&quot;&gt;&lt;/a&gt;&lt;/h4&gt;
-
-&lt;p&gt;Based on some feedback
-from &lt;a href=&quot;http://www.reddit.com/r/rust/comments/22d36q/error_handling_in_capnprotorust/&quot;&gt;r/rust&lt;/a&gt;,
-I’ve implemented a new plan.
-Now a malformed message &lt;em&gt;does&lt;/em&gt; cause task failure by default.
-For cases where that behavior is unacceptable,
-you can set the &lt;code class=&quot;highlighter-rouge&quot;&gt;fail_fast&lt;/code&gt; field of &lt;code class=&quot;highlighter-rouge&quot;&gt;ReaderOptions&lt;/code&gt; to false,
-on a message-by-message basis. Doing so will
-enable the default-value fall-back described above.&lt;/p&gt;
-
-&lt;h4 id=&quot;update-21-march-2015-a-nameupdate2a&quot;&gt;update (21 March 2015) &lt;a name=&quot;update2&quot;&gt;&lt;/a&gt;&lt;/h4&gt;
-
-&lt;p&gt;&lt;a href=&quot;/capnproto-rust/2015/03/21/error-handling-revisited.html&quot;&gt;New post&lt;/a&gt;.
-I’ve switched to explicit &lt;code class=&quot;highlighter-rouge&quot;&gt;Result&lt;/code&gt;-based error handling.&lt;/p&gt;
-</description>
-                                <pubDate>Sun, 06 Apr 2014 00:00:00 -0400</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2014/04/06/error-handling.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2014/04/06/error-handling.html</guid>
                         </item>
                 
         </channel>
