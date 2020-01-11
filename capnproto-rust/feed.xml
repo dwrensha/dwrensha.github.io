@@ -7,6 +7,248 @@
                 <atom:link href="http://dwrensha.github.io/capnproto-rust/feed.xml" rel="self" type="application/rss+xml" />
                 
                         <item>
+                                <title>unaligned memory access</title>
+                                <description>&lt;p&gt;A core feature of capnproto-rust is its ability to
+read messages directly from memory without copying the data into auxiliary structures.
+Unfortunately, this functionality is a bit tricky to use correctly,
+as can be seen in its primary interface, the
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/d1988731887b2bbb0ccb35c68b9292d98f317a48/capnp/src/serialize.rs#L76-L81&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;read_message_from_words()&lt;/code&gt;&lt;/a&gt;
+function, whose input is of type &lt;code class=&quot;highlighter-rouge&quot;&gt;&amp;amp;[Word]&lt;/code&gt;.
+In the common case where you want to read from a &lt;code class=&quot;highlighter-rouge&quot;&gt;&amp;amp;[u8]&lt;/code&gt;,
+you must first call the unsafe function
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/d1988731887b2bbb0ccb35c68b9292d98f317a48/capnp/src/lib.rs#L82-L88&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;bytes_to_words()&lt;/code&gt;&lt;/a&gt;
+in order to get a &lt;code class=&quot;highlighter-rouge&quot;&gt;&amp;amp;[Word]&lt;/code&gt;.
+It is only safe to call this function if you know that your data is 8-byte aligned
+or if you know that your code will only run on processors that permit unaligned memory access.
+The former condition can be difficult to meet, especially if your memory comes from
+an external library like sqlite or zmq where no alignment guarantees are given,
+and the latter condition feels like an unfair burden, both in terms of demanding that
+you understand a rather subtle concept, and in terms of limiting where your software can run.
+So it’s easy to  understand why someone might shy away from calling &lt;code class=&quot;highlighter-rouge&quot;&gt;bytes_to_words()&lt;/code&gt;
+and, in turn, &lt;code class=&quot;highlighter-rouge&quot;&gt;read_message_from_words()&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;Can we do better? Ideally, capnproto-rust would safely operate directly on input of type &lt;code class=&quot;highlighter-rouge&quot;&gt;&amp;amp;[u8]&lt;/code&gt;.
+We can in fact adapt the code to do that, but it comes at a cost: processors that don’t natively
+support unaligned access will need to do some more work every time that capnproto-rust
+loads or stores a multi-byte value.
+To get some idea of what that extra work looks like, let’s examine
+the assembly code emitted by rustc!
+(A better way to quantify the cost would be to perform controlled experiments on actual hardware,
+but that’s a more involved project than I’d like to tackle right now.)&lt;/p&gt;
+
+&lt;p&gt;Below is some code representing a bare-bones simplification of the two approaches to memory access.
+(The &lt;code class=&quot;highlighter-rouge&quot;&gt;#[no_std]&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;#[no_mangle]&lt;/code&gt; attributes are to simpify the assembly code.)&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;err&quot;&gt;#&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;!&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;no_std&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+
+&lt;span class=&quot;cp&quot;&gt;#[no_mangle]&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;unsafe&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;direct_load&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;])&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.as_ptr&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;as&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.to_le&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+
+&lt;span class=&quot;cp&quot;&gt;#[no_mangle]&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;indirect_load&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;])&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;nn&quot;&gt;u64&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;from_le_bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;The &lt;code class=&quot;highlighter-rouge&quot;&gt;direct_load()&lt;/code&gt; function represents the current state of affairs in capnproto-rust.
+It loads a &lt;code class=&quot;highlighter-rouge&quot;&gt;u64&lt;/code&gt; by casting a pointer of type &lt;code class=&quot;highlighter-rouge&quot;&gt;*const u8&lt;/code&gt; to type &lt;code class=&quot;highlighter-rouge&quot;&gt;*const u64&lt;/code&gt; and then deferencing that pointer.
+This is only safe if the input is 8-byte aligned or if the processor can handle unaligned access.&lt;/p&gt;
+
+&lt;p&gt;The &lt;code class=&quot;highlighter-rouge&quot;&gt;indirect_load()&lt;/code&gt; function represents the safer alternative. We expect this to
+sometimes require more work than &lt;code class=&quot;highlighter-rouge&quot;&gt;direct_load()&lt;/code&gt;, but it has the advantage of
+being easier to use and understand.&lt;/p&gt;
+
+&lt;p&gt;To compare the assembly code generated by these functions, I installed
+a variety of rustc targets using &lt;code class=&quot;highlighter-rouge&quot;&gt;rustup&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;rustup target add $TARGET
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;and then for each target compiled the code with:&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;rustc -O --crate-type=lib test.rs --target=$TARGET --emit=asm
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;The results, edited to only include the relevant bits of code, are show below.&lt;/p&gt;
+
+&lt;h2 id=&quot;x8664-unknown-linux-gnu&quot;&gt;x86_64-unknown-linux-gnu&lt;/h2&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
+	movq	(%rdi), %rax
+	retq
+
+indirect_load:
+	movq	(%rdi), %rax
+	retq
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;h2 id=&quot;i686-unknown-linux-gnu&quot;&gt;i686-unknown-linux-gnu&lt;/h2&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
+	movl	4(%esp), %ecx
+	movl	(%ecx), %eax
+	movl	4(%ecx), %edx
+	retl
+
+indirect_load:
+	movl	4(%esp), %ecx
+	movl	(%ecx), %eax
+	movl	4(%ecx), %edx
+	retl
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;h2 id=&quot;aarch64-unknown-linux-gnu&quot;&gt;aarch64-unknown-linux-gnu&lt;/h2&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
+	ldr	x0, [x0]
+	ret
+
+indirect_load:
+	ldr	x0, [x0]
+	ret
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;h2 id=&quot;wasm32-wasi&quot;&gt;wasm32-wasi&lt;/h2&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
+	local.get	0
+	i64.load	0
+
+indirect_load:
+	local.get	0
+	i64.load	0:p2align=0
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;h2 id=&quot;armv7-unknown-linux-gnueabi&quot;&gt;armv7-unknown-linux-gnueabi&lt;/h2&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
+	ldrd	r0, r1, [r0]
+	bx	lr
+
+indirect_load:
+	ldr	r2, [r0]
+	ldr	r1, [r0, #4]
+	mov	r0, r2
+	bx	lr
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;h2 id=&quot;powerpc-unknown-linux-gnu&quot;&gt;powerpc-unknown-linux-gnu&lt;/h2&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
+	lwz 5, 0(3)
+	lwz 4, 4(3)
+	mr 3, 5
+	blr
+
+indirect_load:
+	li 4, 4
+	lwbrx 5, 3, 4
+	lwbrx 4, 0, 3
+	mr 3, 5
+	blr
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;h2 id=&quot;mips-unknown-linux-gnu&quot;&gt;mips-unknown-linux-gnu&lt;/h2&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
+	lw	$2, 0($4)
+	lw	$3, 4($4)
+	jr	$ra
+	nop
+
+indirect_load:
+	lwl	$1, 4($4)
+	lwr	$1, 7($4)
+	wsbh	$1, $1
+	rotr	$2, $1, 16
+	lwl	$1, 0($4)
+	lwr	$1, 3($4)
+	wsbh	$1, $1
+	jr	$ra
+	rotr	$3, $1, 16
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;h2 id=&quot;riscv32i-unknown-none-elf&quot;&gt;riscv32i-unknown-none-elf&lt;/h2&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
+	addi	sp, sp, -16
+	sw	ra, 12(sp)
+	sw	s0, 8(sp)
+	addi	s0, sp, 16
+	lw	a2, 0(a0)
+	lw	a1, 4(a0)
+	mv	a0, a2
+	lw	s0, 8(sp)
+	lw	ra, 12(sp)
+	addi	sp, sp, 16
+	ret
+
+indirect_load:
+	addi	sp, sp, -16
+	sw	ra, 12(sp)
+	sw	s0, 8(sp)
+	addi	s0, sp, 16
+	lbu	a1, 1(a0)
+	slli	a1, a1, 8
+	lbu	a2, 0(a0)
+	or	a1, a1, a2
+	lbu	a2, 3(a0)
+	slli	a2, a2, 8
+	lbu	a3, 2(a0)
+	or	a2, a2, a3
+	slli	a2, a2, 16
+	or	a2, a2, a1
+	lbu	a1, 5(a0)
+	slli	a1, a1, 8
+	lbu	a3, 4(a0)
+	or	a1, a1, a3
+	lbu	a3, 6(a0)
+	lbu	a0, 7(a0)
+	slli	a0, a0, 8
+	or	a0, a0, a3
+	slli	a0, a0, 16
+	or	a1, a0, a1
+	mv	a0, a2
+	lw	s0, 8(sp)
+	lw	ra, 12(sp)
+	addi	sp, sp, 16
+	ret
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;h1 id=&quot;conclusions&quot;&gt;Conclusions&lt;/h1&gt;
+
+&lt;p&gt;As expected, &lt;code class=&quot;highlighter-rouge&quot;&gt;direct_load()&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;indirect_load()&lt;/code&gt; generate the same
+assembly code for many targets. These are presumably exactly the targets that support
+unaligned memory access. On targets where different instructions were generated
+for the two functions, &lt;code class=&quot;highlighter-rouge&quot;&gt;indirect_load()&lt;/code&gt; typically requires somewhere between 2x and 3x the
+number of instructions of &lt;code class=&quot;highlighter-rouge&quot;&gt;direct_load()&lt;/code&gt;. Is that an acceptable cost? How much of an
+impact would it have in the context of a complete real-world program? I don’t know!
+I’m inclined to believe that the usability benefits of the
+&lt;code class=&quot;highlighter-rouge&quot;&gt;indirect_load()&lt;/code&gt; approach outweigh its performance
+cost, especially since that cost is probably zero or negligible on the most commonly used targets,
+but maybe that’s not true?
+I encourage any readers of this post who have thoughts on the matter to comment
+on this &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/issues/101&quot;&gt;github issue&lt;/a&gt;.&lt;/p&gt;
+</description>
+                                <pubDate>Sat, 11 Jan 2020 00:00:00 -0500</pubDate>
+                                <link>http://dwrensha.github.io/capnproto-rust/2020/01/11/unaligned-memory-access.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2020/01/11/unaligned-memory-access.html</guid>
+                        </item>
+                
+                        <item>
                                 <title>async/await</title>
                                 <description>&lt;p&gt;Today I’m releasing version 0.11.0 of capnproto-rust,
 with support for
@@ -884,171 +1126,6 @@ to &lt;code class=&quot;highlighter-rouge&quot;&gt;reborrow()&lt;/code&gt;.&lt;/
                                 <pubDate>Sat, 27 Dec 2014 00:00:00 -0500</pubDate>
                                 <link>http://dwrensha.github.io/capnproto-rust/2014/12/27/custom-mutable-references.html</link>
                                 <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2014/12/27/custom-mutable-references.html</guid>
-                        </item>
-                
-                        <item>
-                                <title>the libserialize traits</title>
-                                <description>&lt;p&gt;A number of people have asked me whether
-Cap’n Proto might be able to hook into
-the &lt;code class=&quot;highlighter-rouge&quot;&gt;Encodable&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;Decodable&lt;/code&gt;
-traits of Rust’s &lt;code class=&quot;highlighter-rouge&quot;&gt;libserialize&lt;/code&gt;.
-My current answer is
-“perhaps, but it probably wouldn’t buy us much.”&lt;/p&gt;
-
-&lt;h4 id=&quot;libserialize&quot;&gt;libserialize&lt;/h4&gt;
-
-&lt;p&gt;The purpose of &lt;code class=&quot;highlighter-rouge&quot;&gt;Encodable&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;Decodable&lt;/code&gt;
-is to provide a convenient way
-to make existing Rust data types
-mobile.
-For example, you might have a Rust data type &lt;code class=&quot;highlighter-rouge&quot;&gt;Foo&lt;/code&gt;,&lt;/p&gt;
-
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;struct Foo {
-  a : u64,
-  b : String,
-}
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
-
-&lt;p&gt;and you might encounter a need to
-send values of type &lt;code class=&quot;highlighter-rouge&quot;&gt;Foo&lt;/code&gt; between processes.
-Using &lt;code class=&quot;highlighter-rouge&quot;&gt;libserialize&lt;/code&gt;, you can
-add a &lt;code class=&quot;highlighter-rouge&quot;&gt;deriving&lt;/code&gt; annotation, like this:&lt;/p&gt;
-
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;#[deriving(Encodable, Decodable)]
-struct Foo {
-  a : u64,
-  b : String,
-}
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
-
-&lt;p&gt;which automatically gives &lt;code class=&quot;highlighter-rouge&quot;&gt;Foo&lt;/code&gt;
-the methods
-&lt;code class=&quot;highlighter-rouge&quot;&gt;encode&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;decode&lt;/code&gt;,
-allowing translation to and from
-JSON, EBML, or any other encoding
-that implements the &lt;code class=&quot;highlighter-rouge&quot;&gt;Encoder&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;Decoder&lt;/code&gt; traits.&lt;/p&gt;
-
-&lt;p&gt;In the case of JSON,
-this approach has a secondary use case.
-For structs, arrays, and primitives,
-the mapping between Rust and JSON
-is canonical and simple enough
-that you can in fact use
-&lt;code class=&quot;highlighter-rouge&quot;&gt;libserialize&lt;/code&gt;’s JSON codec
-for communication with externally
-defined interfaces,
-as when you’re constructing the JSON body of
-an HTTP request to some server that you don’t control.&lt;/p&gt;
-
-&lt;h4 id=&quot;capn-proto&quot;&gt;Cap’n Proto&lt;/h4&gt;
-
-&lt;p&gt;The typical mode of use of Cap’n Proto
-follows a different pattern.
-We start by defining the types that we
-need to be mobile.
-For the above example, we would have a
-&lt;a href=&quot;http://kentonv.github.io/capnproto/language.html&quot;&gt;schema file&lt;/a&gt;
-containing this definition:&lt;/p&gt;
-
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;struct Foo {
-  a @0 : UInt64;
-  b @1 : Text;
-}
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
-
-&lt;p&gt;We could then use that schema to generate
-code in any of the &lt;a href=&quot;https://kentonv.github.io/capnproto/otherlang.html&quot;&gt;supported languages&lt;/a&gt;.
-For Rust, this would give us
-types named
-&lt;code class=&quot;highlighter-rouge&quot;&gt;Foo::Reader&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;Foo::Builder&lt;/code&gt;
-with accessor methods
-providing
-access to the &lt;code class=&quot;highlighter-rouge&quot;&gt;a&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;b&lt;/code&gt; fields.
-You can think of these readers and builders
-as fancy pointers into a byte array
-representing an &lt;em&gt;already serialized&lt;/em&gt; &lt;code class=&quot;highlighter-rouge&quot;&gt;Foo&lt;/code&gt;.
-Cap’n Proto lets us access and modify
-these bytes in a way that’s nearly
-as convenient as accessing and modifying
-Rust-native structs.&lt;/p&gt;
-
-&lt;p&gt;The chief advantages of Cap’n Proto,
-including its high performance and the small size of its generated code,
-are only possible because all operations on data are directly backed by
-byte arrays in this way.&lt;/p&gt;
-
-&lt;h4 id=&quot;conclusion&quot;&gt;conclusion?&lt;/h4&gt;
-
-&lt;p&gt;Suppose you’ve already defined
-some Rust data types,
-you now want them to be mobile,
-and you also want to use Cap’n Proto.
-What options are available to you?&lt;/p&gt;
-
-&lt;p&gt;You could move the data type definitions into a schema file
-and replace all uses in the Rust code
-with the generated reader and builder types.
-If feasible, this is the way to go,
-as it gives you all the benefits that
-Cap’n Proto was designed for, including
-&lt;a href=&quot;http://kentonv.github.io/capnproto/language.html#evolving_your_protocol&quot;&gt;backwards compatibility&lt;/a&gt;.&lt;/p&gt;
-
-&lt;p&gt;It might, however, be too awkward to use the Cap’n Proto
-readers and builders everywhere.
-An alternative on the opposite side of the
-spectrum
-would be to
-mimic the behavior of the JSON codec.
-You could implement &lt;code class=&quot;highlighter-rouge&quot;&gt;Encoder&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;Decoder&lt;/code&gt;
-for a Cap’n Proto schema describing Rust values, as outlined below.&lt;/p&gt;
-
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;struct RustValue {
-  union {
-    struct  @0 : Struct;
-    variant @1 : Variant;
-    array   @2 : List(RustValue);
-    uint8   @3 : UInt8;
-    uint16  @4 : UInt16;
-    uint32  @5 : UInt32;
-    uint64  @6 : UInt64;
-    ...
-  }
-}
-
-struct Struct {
-  fields @0 : List(Field);
-}
-
-struct Field {
-  name  @0 : Text;
-  value @1 : RustValue;
-}
-
-struct Variant {
-   name  @0 : Text;
-   args  @1 : List(RustValue);
-}
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
-
-&lt;p&gt;Note that this may or may not actually be
-more efficient than the JSON version.&lt;/p&gt;
-
-&lt;p&gt;Another option might be to
-move the data type definitions into a schema file
-but keep the Rust type definitions as well,
-and to implement some code generation
-for translating between them,
-perhaps through the &lt;code class=&quot;highlighter-rouge&quot;&gt;Encoder&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;Decoder&lt;/code&gt; traits or something similar.
-This would preserve some of the advantages
-of both approaches, but would likely add considerable complexity.&lt;/p&gt;
-</description>
-                                <pubDate>Sun, 01 Jun 2014 00:00:00 -0400</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2014/06/01/libserialize-traits.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2014/06/01/libserialize-traits.html</guid>
                         </item>
                 
         </channel>

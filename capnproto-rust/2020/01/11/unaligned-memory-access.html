@@ -1,0 +1,273 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title> unaligned memory access </title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<link rel="stylesheet" href="/capnproto-rust/css/main.css" type="text/css" />
+<link rel="stylesheet" href="/capnproto-rust/css/syntax.css" type="text/css" />
+<link rel="shortcut icon" href="/capnproto-rust/favicon.png">
+</head>
+<body>
+<p>
+11 Jan 2020
+<p>
+
+<p>A core feature of capnproto-rust is its ability to
+read messages directly from memory without copying the data into auxiliary structures.
+Unfortunately, this functionality is a bit tricky to use correctly,
+as can be seen in its primary interface, the
+<a href="https://github.com/capnproto/capnproto-rust/blob/d1988731887b2bbb0ccb35c68b9292d98f317a48/capnp/src/serialize.rs#L76-L81"><code class="highlighter-rouge">read_message_from_words()</code></a>
+function, whose input is of type <code class="highlighter-rouge">&amp;[Word]</code>.
+In the common case where you want to read from a <code class="highlighter-rouge">&amp;[u8]</code>,
+you must first call the unsafe function
+<a href="https://github.com/capnproto/capnproto-rust/blob/d1988731887b2bbb0ccb35c68b9292d98f317a48/capnp/src/lib.rs#L82-L88"><code class="highlighter-rouge">bytes_to_words()</code></a>
+in order to get a <code class="highlighter-rouge">&amp;[Word]</code>.
+It is only safe to call this function if you know that your data is 8-byte aligned
+or if you know that your code will only run on processors that permit unaligned memory access.
+The former condition can be difficult to meet, especially if your memory comes from
+an external library like sqlite or zmq where no alignment guarantees are given,
+and the latter condition feels like an unfair burden, both in terms of demanding that
+you understand a rather subtle concept, and in terms of limiting where your software can run.
+So it’s easy to  understand why someone might shy away from calling <code class="highlighter-rouge">bytes_to_words()</code>
+and, in turn, <code class="highlighter-rouge">read_message_from_words()</code>.</p>
+
+<p>Can we do better? Ideally, capnproto-rust would safely operate directly on input of type <code class="highlighter-rouge">&amp;[u8]</code>.
+We can in fact adapt the code to do that, but it comes at a cost: processors that don’t natively
+support unaligned access will need to do some more work every time that capnproto-rust
+loads or stores a multi-byte value.
+To get some idea of what that extra work looks like, let’s examine
+the assembly code emitted by rustc!
+(A better way to quantify the cost would be to perform controlled experiments on actual hardware,
+but that’s a more involved project than I’d like to tackle right now.)</p>
+
+<p>Below is some code representing a bare-bones simplification of the two approaches to memory access.
+(The <code class="highlighter-rouge">#[no_std]</code> and <code class="highlighter-rouge">#[no_mangle]</code> attributes are to simpify the assembly code.)</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code><span class="err">#</span><span class="o">!</span><span class="p">[</span><span class="n">no_std</span><span class="p">]</span>
+
+<span class="cp">#[no_mangle]</span>
+<span class="k">pub</span> <span class="k">unsafe</span> <span class="k">fn</span> <span class="nf">direct_load</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="o">&amp;</span><span class="p">[</span><span class="nb">u8</span><span class="p">;</span> <span class="mi">8</span><span class="p">])</span> <span class="k">-&gt;</span> <span class="nb">u64</span> <span class="p">{</span>
+    <span class="p">(</span><span class="o">*</span><span class="p">(</span><span class="n">x</span><span class="nf">.as_ptr</span><span class="p">()</span> <span class="k">as</span> <span class="o">*</span><span class="k">const</span> <span class="nb">u64</span><span class="p">))</span><span class="nf">.to_le</span><span class="p">()</span>
+<span class="p">}</span>
+
+<span class="cp">#[no_mangle]</span>
+<span class="k">pub</span> <span class="k">fn</span> <span class="nf">indirect_load</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="o">&amp;</span><span class="p">[</span><span class="nb">u8</span><span class="p">;</span> <span class="mi">8</span><span class="p">])</span> <span class="k">-&gt;</span> <span class="nb">u64</span> <span class="p">{</span>
+    <span class="nn">u64</span><span class="p">::</span><span class="nf">from_le_bytes</span><span class="p">(</span><span class="o">*</span><span class="n">x</span><span class="p">)</span>
+<span class="p">}</span>
+</code></pre>
+</div>
+
+<p>The <code class="highlighter-rouge">direct_load()</code> function represents the current state of affairs in capnproto-rust.
+It loads a <code class="highlighter-rouge">u64</code> by casting a pointer of type <code class="highlighter-rouge">*const u8</code> to type <code class="highlighter-rouge">*const u64</code> and then deferencing that pointer.
+This is only safe if the input is 8-byte aligned or if the processor can handle unaligned access.</p>
+
+<p>The <code class="highlighter-rouge">indirect_load()</code> function represents the safer alternative. We expect this to
+sometimes require more work than <code class="highlighter-rouge">direct_load()</code>, but it has the advantage of
+being easier to use and understand.</p>
+
+<p>To compare the assembly code generated by these functions, I installed
+a variety of rustc targets using <code class="highlighter-rouge">rustup</code>:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>rustup target add $TARGET
+</code></pre>
+</div>
+
+<p>and then for each target compiled the code with:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>rustc -O --crate-type=lib test.rs --target=$TARGET --emit=asm
+</code></pre>
+</div>
+
+<p>The results, edited to only include the relevant bits of code, are show below.</p>
+
+<h2 id="x8664-unknown-linux-gnu">x86_64-unknown-linux-gnu</h2>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>direct_load:
+	movq	(%rdi), %rax
+	retq
+
+indirect_load:
+	movq	(%rdi), %rax
+	retq
+</code></pre>
+</div>
+
+<h2 id="i686-unknown-linux-gnu">i686-unknown-linux-gnu</h2>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>direct_load:
+	movl	4(%esp), %ecx
+	movl	(%ecx), %eax
+	movl	4(%ecx), %edx
+	retl
+
+indirect_load:
+	movl	4(%esp), %ecx
+	movl	(%ecx), %eax
+	movl	4(%ecx), %edx
+	retl
+</code></pre>
+</div>
+
+<h2 id="aarch64-unknown-linux-gnu">aarch64-unknown-linux-gnu</h2>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>direct_load:
+	ldr	x0, [x0]
+	ret
+
+indirect_load:
+	ldr	x0, [x0]
+	ret
+</code></pre>
+</div>
+
+<h2 id="wasm32-wasi">wasm32-wasi</h2>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>direct_load:
+	local.get	0
+	i64.load	0
+
+indirect_load:
+	local.get	0
+	i64.load	0:p2align=0
+</code></pre>
+</div>
+
+<h2 id="armv7-unknown-linux-gnueabi">armv7-unknown-linux-gnueabi</h2>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>direct_load:
+	ldrd	r0, r1, [r0]
+	bx	lr
+
+indirect_load:
+	ldr	r2, [r0]
+	ldr	r1, [r0, #4]
+	mov	r0, r2
+	bx	lr
+</code></pre>
+</div>
+
+<h2 id="powerpc-unknown-linux-gnu">powerpc-unknown-linux-gnu</h2>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>direct_load:
+	lwz 5, 0(3)
+	lwz 4, 4(3)
+	mr 3, 5
+	blr
+
+indirect_load:
+	li 4, 4
+	lwbrx 5, 3, 4
+	lwbrx 4, 0, 3
+	mr 3, 5
+	blr
+</code></pre>
+</div>
+
+<h2 id="mips-unknown-linux-gnu">mips-unknown-linux-gnu</h2>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>direct_load:
+	lw	$2, 0($4)
+	lw	$3, 4($4)
+	jr	$ra
+	nop
+
+indirect_load:
+	lwl	$1, 4($4)
+	lwr	$1, 7($4)
+	wsbh	$1, $1
+	rotr	$2, $1, 16
+	lwl	$1, 0($4)
+	lwr	$1, 3($4)
+	wsbh	$1, $1
+	jr	$ra
+	rotr	$3, $1, 16
+</code></pre>
+</div>
+
+<h2 id="riscv32i-unknown-none-elf">riscv32i-unknown-none-elf</h2>
+
+<div class="highlighter-rouge"><pre class="highlight"><code>direct_load:
+	addi	sp, sp, -16
+	sw	ra, 12(sp)
+	sw	s0, 8(sp)
+	addi	s0, sp, 16
+	lw	a2, 0(a0)
+	lw	a1, 4(a0)
+	mv	a0, a2
+	lw	s0, 8(sp)
+	lw	ra, 12(sp)
+	addi	sp, sp, 16
+	ret
+
+indirect_load:
+	addi	sp, sp, -16
+	sw	ra, 12(sp)
+	sw	s0, 8(sp)
+	addi	s0, sp, 16
+	lbu	a1, 1(a0)
+	slli	a1, a1, 8
+	lbu	a2, 0(a0)
+	or	a1, a1, a2
+	lbu	a2, 3(a0)
+	slli	a2, a2, 8
+	lbu	a3, 2(a0)
+	or	a2, a2, a3
+	slli	a2, a2, 16
+	or	a2, a2, a1
+	lbu	a1, 5(a0)
+	slli	a1, a1, 8
+	lbu	a3, 4(a0)
+	or	a1, a1, a3
+	lbu	a3, 6(a0)
+	lbu	a0, 7(a0)
+	slli	a0, a0, 8
+	or	a0, a0, a3
+	slli	a0, a0, 16
+	or	a1, a0, a1
+	mv	a0, a2
+	lw	s0, 8(sp)
+	lw	ra, 12(sp)
+	addi	sp, sp, 16
+	ret
+</code></pre>
+</div>
+
+<h1 id="conclusions">Conclusions</h1>
+
+<p>As expected, <code class="highlighter-rouge">direct_load()</code> and <code class="highlighter-rouge">indirect_load()</code> generate the same
+assembly code for many targets. These are presumably exactly the targets that support
+unaligned memory access. On targets where different instructions were generated
+for the two functions, <code class="highlighter-rouge">indirect_load()</code> typically requires somewhere between 2x and 3x the
+number of instructions of <code class="highlighter-rouge">direct_load()</code>. Is that an acceptable cost? How much of an
+impact would it have in the context of a complete real-world program? I don’t know!
+I’m inclined to believe that the usability benefits of the
+<code class="highlighter-rouge">indirect_load()</code> approach outweigh its performance
+cost, especially since that cost is probably zero or negligible on the most commonly used targets,
+but maybe that’s not true?
+I encourage any readers of this post who have thoughts on the matter to comment
+on this <a href="https://github.com/capnproto/capnproto-rust/issues/101">github issue</a>.</p>
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+
+<div>
+ <a href="https://www.github.com/dwrensha/capnproto-rust">
+   capnproto-rust on github
+ </a>
+</div>
+
+<div>
+ <a href="/capnproto-rust/index.html">
+   more posts
+ </a>
+</div>
+
+<a href="/capnproto-rust/feed.xml">
+<img src="/capnproto-rust/assets/rss.png"
+     width="14"/>
+</a>
+
+
+</body>
