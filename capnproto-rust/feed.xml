@@ -18,12 +18,13 @@ In the common case where you want to read from a &lt;code class=&quot;highlighte
 you must first call the unsafe function
 &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/d1988731887b2bbb0ccb35c68b9292d98f317a48/capnp/src/lib.rs#L82-L88&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;bytes_to_words()&lt;/code&gt;&lt;/a&gt;
 in order to get a &lt;code class=&quot;highlighter-rouge&quot;&gt;&amp;amp;[Word]&lt;/code&gt;.
-It is only safe to call this function if you know that your data is 8-byte aligned
-or if you know that your code will only run on processors that permit unaligned memory access.
+It is only safe to call this function if you know that your data is
+8-byte aligned &lt;strike&gt;or if you know that your code will only run on processors
+that permit unaligned memory access&lt;/strike&gt; (EDIT: ralfj &lt;a href=&quot;https://www.reddit.com/r/rust/comments/en9fmn/should_capnprotorust_force_users_to_worry_about/fedhjtk/&quot;&gt;informs me&lt;/a&gt; that misaligned loads are never okay.)
 The former condition can be difficult to meet, especially if your memory comes from
-an external library like sqlite or zmq where no alignment guarantees are given,
+an external library like sqlite or zmq where no alignment guarantees are given&lt;strike&gt;,
 and the latter condition feels like an unfair burden, both in terms of demanding that
-you understand a rather subtle concept, and in terms of limiting where your software can run.
+you understand a rather subtle concept, and in terms of limiting where your software can run&lt;/strike&gt;.
 So it’s easy to  understand why someone might shy away from calling &lt;code class=&quot;highlighter-rouge&quot;&gt;bytes_to_words()&lt;/code&gt;
 and, in turn, &lt;code class=&quot;highlighter-rouge&quot;&gt;read_message_from_words()&lt;/code&gt;.&lt;/p&gt;
 
@@ -55,7 +56,8 @@ but that’s a more involved project than I’d like to tackle right now.)&lt;/p
 
 &lt;p&gt;The &lt;code class=&quot;highlighter-rouge&quot;&gt;direct_load()&lt;/code&gt; function represents the current state of affairs in capnproto-rust.
 It loads a &lt;code class=&quot;highlighter-rouge&quot;&gt;u64&lt;/code&gt; by casting a pointer of type &lt;code class=&quot;highlighter-rouge&quot;&gt;*const u8&lt;/code&gt; to type &lt;code class=&quot;highlighter-rouge&quot;&gt;*const u64&lt;/code&gt; and then deferencing that pointer.
-This is only safe if the input is 8-byte aligned or if the processor can handle unaligned access.&lt;/p&gt;
+This is only safe if the input is 8-byte aligned &lt;strike&gt;or if the processor can handle unaligned access&lt;/strike&gt;.
+(EDIT: again, see ralfj’s &lt;a href=&quot;https://www.reddit.com/r/rust/comments/en9fmn/should_capnprotorust_force_users_to_worry_about/fedhjtk/&quot;&gt;reddit comment&lt;/a&gt;.)&lt;/p&gt;
 
 &lt;p&gt;The &lt;code class=&quot;highlighter-rouge&quot;&gt;indirect_load()&lt;/code&gt; function represents the safer alternative. We expect this to
 sometimes require more work than &lt;code class=&quot;highlighter-rouge&quot;&gt;direct_load()&lt;/code&gt;, but it has the advantage of

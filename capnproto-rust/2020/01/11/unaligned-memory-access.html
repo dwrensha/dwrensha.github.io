@@ -22,12 +22,13 @@ In the common case where you want to read from a <code class="highlighter-rouge"
 you must first call the unsafe function
 <a href="https://github.com/capnproto/capnproto-rust/blob/d1988731887b2bbb0ccb35c68b9292d98f317a48/capnp/src/lib.rs#L82-L88"><code class="highlighter-rouge">bytes_to_words()</code></a>
 in order to get a <code class="highlighter-rouge">&amp;[Word]</code>.
-It is only safe to call this function if you know that your data is 8-byte aligned
-or if you know that your code will only run on processors that permit unaligned memory access.
+It is only safe to call this function if you know that your data is
+8-byte aligned <strike>or if you know that your code will only run on processors
+that permit unaligned memory access</strike> (EDIT: ralfj <a href="https://www.reddit.com/r/rust/comments/en9fmn/should_capnprotorust_force_users_to_worry_about/fedhjtk/">informs me</a> that misaligned loads are never okay.)
 The former condition can be difficult to meet, especially if your memory comes from
-an external library like sqlite or zmq where no alignment guarantees are given,
+an external library like sqlite or zmq where no alignment guarantees are given<strike>,
 and the latter condition feels like an unfair burden, both in terms of demanding that
-you understand a rather subtle concept, and in terms of limiting where your software can run.
+you understand a rather subtle concept, and in terms of limiting where your software can run</strike>.
 So it’s easy to  understand why someone might shy away from calling <code class="highlighter-rouge">bytes_to_words()</code>
 and, in turn, <code class="highlighter-rouge">read_message_from_words()</code>.</p>
 
@@ -59,7 +60,8 @@ but that’s a more involved project than I’d like to tackle right now.)</p>
 
 <p>The <code class="highlighter-rouge">direct_load()</code> function represents the current state of affairs in capnproto-rust.
 It loads a <code class="highlighter-rouge">u64</code> by casting a pointer of type <code class="highlighter-rouge">*const u8</code> to type <code class="highlighter-rouge">*const u64</code> and then deferencing that pointer.
-This is only safe if the input is 8-byte aligned or if the processor can handle unaligned access.</p>
+This is only safe if the input is 8-byte aligned <strike>or if the processor can handle unaligned access</strike>.
+(EDIT: again, see ralfj’s <a href="https://www.reddit.com/r/rust/comments/en9fmn/should_capnprotorust_force_users_to_worry_about/fedhjtk/">reddit comment</a>.)</p>
 
 <p>The <code class="highlighter-rouge">indirect_load()</code> function represents the safer alternative. We expect this to
 sometimes require more work than <code class="highlighter-rouge">direct_load()</code>, but it has the advantage of
