@@ -7,6 +7,85 @@
                 <atom:link href="http://dwrensha.github.io/capnproto-rust/feed.xml" rel="self" type="application/rss+xml" />
                 
                         <item>
+                                <title>new feature to allow unaligned buffers</title>
+                                <description>&lt;p&gt;&lt;a href=&quot;/2020/01/11/unaligned-memory-access.html&quot;&gt;Last week&lt;/a&gt; I wrote about
+how capnproto-rust might relax its memory alignment requirements
+and what the performance cost of that might look like.
+The &lt;a href=&quot;https://www.reddit.com/r/rust/comments/en9fmn/should_capnprotorust_force_users_to_worry_about/&quot;&gt;ensuing discussion&lt;/a&gt;
+taught me that memory alignment issues can be thornier than I had thought,
+and it strengthened my belief that capnproto-rust users ought be shielded
+from such issues. Since then, working with the helpful feedback
+of many people, I have implemented what I consider to be a satisfactory resolution to the problem.
+Today I’m releasing it as part of capnproto-rust version 0.12.
+The new version not only provides a safe interface for unaligned memory, but also maintains high performance
+for aligned memory.&lt;/p&gt;
+
+&lt;h2 id=&quot;new-feature-flag&quot;&gt;New Feature Flag&lt;/h2&gt;
+&lt;p&gt;Cargo supports a
+&lt;a href=&quot;https://doc.rust-lang.org/cargo/reference/manifest.html#the-features-section&quot;&gt;feature-flags&lt;/a&gt;
+mechanism, whereby a crate can declare parts of its functionality to be optional, with enablement or disablement
+happening at compile time.&lt;/p&gt;
+
+&lt;p&gt;As of version 0.12, the &lt;code class=&quot;highlighter-rouge&quot;&gt;capnp&lt;/code&gt; crate has a new
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/capnp/Cargo.toml#L30-L32&quot;&gt;feature flag called &lt;code class=&quot;highlighter-rouge&quot;&gt;unaligned&lt;/code&gt;&lt;/a&gt;.
+When &lt;code class=&quot;highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; is enabled, &lt;code class=&quot;highlighter-rouge&quot;&gt;capnp&lt;/code&gt; makes no assumptions about the alignment of its data.
+In particular, it can read a message in place from any array of bytes via
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/capnp/src/serialize.rs#L57-L65&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;read_message_from_flat_slice()&lt;/code&gt;&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;On the flip side, when &lt;code class=&quot;highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; is &lt;em&gt;not&lt;/em&gt; enabled, &lt;code class=&quot;highlighter-rouge&quot;&gt;capnp&lt;/code&gt; requires that message segments are 8-byte aligned,
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/capnp/src/private/arena.rs#L92-L100&quot;&gt;returning an error&lt;/a&gt;
+if it detects that’s not the case.
+The 8-byte alignment is then used whenever
+&lt;code class=&quot;highlighter-rouge&quot;&gt;capnp&lt;/code&gt; loads or stores a primitive value in a message.&lt;/p&gt;
+
+&lt;p&gt;With the new interface, there is no longer a need for the problematic &lt;code class=&quot;highlighter-rouge&quot;&gt;unsafe fn Word::bytes_to_words()&lt;/code&gt;,
+so that method no longer exists.&lt;/p&gt;
+
+&lt;h2 id=&quot;performance&quot;&gt;Performance&lt;/h2&gt;
+
+&lt;p&gt;The downside of enabling the &lt;code class=&quot;highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; feature is that some operations require
+more instructions on certain compilation targets.
+To better understand the performance cost,
+I ran capnproto-rust’s
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/tree/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/benchmark&quot;&gt;benchmark suite&lt;/a&gt;
+on three different computers: my laptop (x86_64), an EC2 ARM64 instance (aarch64), and a Raspberry Pi Zero (armv6).
+I compared three different capnproto-rust versions: 0.11, 0.12, and 0.12 with &lt;code class=&quot;highlighter-rouge&quot;&gt;unaligned&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;As expected, on all of the computers
+the 0.12 version without the &lt;code class=&quot;highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; feature performed about the same version 0.11
+(within measurement noise).
+When I enabled the &lt;code class=&quot;highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; feature, the only computer where there
+was a noticeable performance impact was the Raspberry Pi,
+where the benchmarks slowed down between 10 and 20 percent.
+This also was within my expectations, though I had been hoping
+it would be lower. (If the performance impact had been negligible,
+I would likely not have bothered to make &lt;code class=&quot;highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; an optional feature; instead
+I would have made it the &lt;em&gt;only&lt;/em&gt; supported mode.)&lt;/p&gt;
+
+&lt;h2 id=&quot;validation&quot;&gt;Validation&lt;/h2&gt;
+
+&lt;p&gt;Following &lt;a href=&quot;https://www.reddit.com/r/rust/comments/en9fmn/should_capnprotorust_force_users_to_worry_about/fedr67j/&quot;&gt;ralfj’s suggestion&lt;/a&gt;,
+I also performed some testing with &lt;a href=&quot;https://github.com/rust-lang/miri&quot;&gt;miri&lt;/a&gt;
+to increase my confidence that there is no lurking undefined behavior.
+I added &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/capnp/src/private/layout_test.rs#L24&quot;&gt;some tests&lt;/a&gt;
+that specifically force 1-byte alignment.&lt;/p&gt;
+
+&lt;p&gt;I was pleasantly surprised to learn how easy it is to run miri these days:&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;$ rustup component add miri
+$ cargo miri test
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;I recommend that you try this on your own projects!&lt;/p&gt;
+
+</description>
+                                <pubDate>Sun, 19 Jan 2020 00:00:00 -0500</pubDate>
+                                <link>http://dwrensha.github.io/capnproto-rust/2020/01/19/new-feature-to-allow-unaligned-buffers.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2020/01/19/new-feature-to-allow-unaligned-buffers.html</guid>
+                        </item>
+                
+                        <item>
                                 <title>unaligned memory access</title>
                                 <description>&lt;p&gt;A core feature of capnproto-rust is its ability to
 read messages directly from memory without copying the data into auxiliary structures.
@@ -952,186 +1031,6 @@ can make things quite usable.&lt;/p&gt;
                                 <pubDate>Sat, 21 Mar 2015 00:00:00 -0400</pubDate>
                                 <link>http://dwrensha.github.io/capnproto-rust/2015/03/21/error-handling-revisited.html</link>
                                 <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2015/03/21/error-handling-revisited.html</guid>
-                        </item>
-                
-                        <item>
-                                <title>custom mutable reference types</title>
-                                <description>&lt;p&gt;Rust’s &lt;em&gt;mutable references&lt;/em&gt; provide exclusive access to writable locations in memory.
-If we have &lt;code class=&quot;highlighter-rouge&quot;&gt;x : &amp;amp;&#39;a mut T&lt;/code&gt;,
-then we know that the referred-to &lt;code class=&quot;highlighter-rouge&quot;&gt;T&lt;/code&gt;
-cannot be read or modified except through dereferencing &lt;code class=&quot;highlighter-rouge&quot;&gt;x&lt;/code&gt;.
-In other words, &lt;code class=&quot;highlighter-rouge&quot;&gt;x&lt;/code&gt; can have no aliases.
-This guarantee is
-crucial for memory safety,
-as it implies that
-any mutations we apply through
-&lt;code class=&quot;highlighter-rouge&quot;&gt;x&lt;/code&gt; have no risk of invalidating references held
-elsewhere in our program.&lt;/p&gt;
-
-&lt;p&gt;The &lt;code class=&quot;highlighter-rouge&quot;&gt;Builder&lt;/code&gt; types
-of &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust&quot;&gt;capnproto-rust&lt;/a&gt;
-also need to provide an exclusivity guarantee.
-Recall that if &lt;code class=&quot;highlighter-rouge&quot;&gt;Foo&lt;/code&gt; is a struct defined in a Cap’n Proto schema,
-then a &lt;code class=&quot;highlighter-rouge&quot;&gt;foo::Builder&amp;lt;&#39;a&amp;gt;&lt;/code&gt;
-provides access to a writable location
-in arena-allocated memory that contains
-a &lt;code class=&quot;highlighter-rouge&quot;&gt;Foo&lt;/code&gt; in &lt;a href=&quot;https://kentonv.github.io/capnproto/encoding.html&quot;&gt;Cap’n Proto format&lt;/a&gt;.
-To protect access to that memory, a &lt;code class=&quot;highlighter-rouge&quot;&gt;foo::Builder&amp;lt;&#39;a&amp;gt;&lt;/code&gt; ought to behave
-as if it were a &lt;code class=&quot;highlighter-rouge&quot;&gt;&amp;amp;&#39;a mut Foo&lt;/code&gt;,
-even though the &lt;code class=&quot;highlighter-rouge&quot;&gt;Foo&lt;/code&gt; type
-cannot directly exist in Rust
-(because Cap’n Proto struct layout
-differs from Rust struct layout).&lt;/p&gt;
-
-&lt;p&gt;So the question arises: how do we define custom mutable references?&lt;/p&gt;
-
-&lt;p&gt;As we’ll see, the easy part is ensuring exclusive access,
-which can be achieved simply by not
-implementing the &lt;code class=&quot;highlighter-rouge&quot;&gt;Copy&lt;/code&gt; trait for &lt;code class=&quot;highlighter-rouge&quot;&gt;foo::Builder&amp;lt;&#39;a&amp;gt;&lt;/code&gt;.
-The tricky part is making it ergonomic to reuse a reference,
-something that built-in mutable references achieve through
-special &lt;em&gt;automatic reborrowing&lt;/em&gt; semantics. Our custom references
-can use similar semantics, but they need to be slightly more explicit about it.&lt;/p&gt;
-
-&lt;p&gt;Okay, let’s get concrete. Suppose that &lt;code class=&quot;highlighter-rouge&quot;&gt;Foo&lt;/code&gt; is defined in a Cap’n Proto schema like this:&lt;/p&gt;
-
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;struct Foo {
-  x @0 : Float32;
-  blob @1 : Data;
-}
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
-
-&lt;p&gt;When we call &lt;code class=&quot;highlighter-rouge&quot;&gt;capnp compile -orust foo.capnp&lt;/code&gt;, we get generated code
-containing the following definitions:&lt;/p&gt;
-
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;mod foo {
-  pub struct Builder&amp;lt;&#39;a&amp;gt; {...}
-
-  impl &amp;lt;&#39;a&amp;gt; Builder&amp;lt;&#39;a&amp;gt; {
-    pub fn get_x(self) -&amp;gt; f32 {...}
-    pub fn set_x(&amp;amp;mut self, value : f32) {...}
-    pub fn get_blob(self) -&amp;gt; ::capnp::data::Builder&amp;lt;&#39;a&amp;gt; {...}
-    pub fn set_blob(&amp;amp;mut self, value : ::capnp::data::Reader) {...}
-    pub fn init_blob(self, length : u32) -&amp;gt; ::capnp::data::Builder&amp;lt;&#39;a&amp;gt; {...}
-    ...
-  }
-  ...
-}
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
-
-&lt;p&gt;You see here the usual accessor methods that allow us to
-read and modify a &lt;code class=&quot;highlighter-rouge&quot;&gt;Foo&lt;/code&gt;.
-Note that the &lt;code class=&quot;highlighter-rouge&quot;&gt;get_&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;init_&lt;/code&gt; methods take a by-value &lt;code class=&quot;highlighter-rouge&quot;&gt;self&lt;/code&gt;
-parameter.
-This ensures that at most one &lt;code class=&quot;highlighter-rouge&quot;&gt;::capnp::data::Builder&lt;/code&gt; referring to the &lt;code class=&quot;highlighter-rouge&quot;&gt;blob&lt;/code&gt; field
-can be obtained.
-For example, if we call &lt;code class=&quot;highlighter-rouge&quot;&gt;foo.init_blob()&lt;/code&gt; then we cannot later call &lt;code class=&quot;highlighter-rouge&quot;&gt;foo.get_blob()&lt;/code&gt;,
-because &lt;code class=&quot;highlighter-rouge&quot;&gt;foo&lt;/code&gt; &lt;em&gt;moves into&lt;/em&gt; the first call
-and cannot be used again.
-As the &lt;code class=&quot;highlighter-rouge&quot;&gt;::capnp::data::Builder&amp;lt;&#39;a&amp;gt;&lt;/code&gt; type is in fact just a typedef for &lt;code class=&quot;highlighter-rouge&quot;&gt;&amp;amp;&#39;a mut [u8]&lt;/code&gt;,
-it should be extra clear here why exclusivity is important to maintain.&lt;/p&gt;
-
-&lt;p&gt;One thing we might do with these accessors is
-initialize the &lt;code class=&quot;highlighter-rouge&quot;&gt;Foo&lt;/code&gt; and return a reference to its interior,
-as does this function:&lt;/p&gt;
-
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;fn init_and_return_slice&amp;lt;&#39;a&amp;gt;(foo : foo::Builder&amp;lt;&#39;a&amp;gt;) -&amp;gt; &amp;amp;&#39;a mut [u8] {
-    foo.init_blob(100).slice_mut(5, 10)
-}
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
-
-&lt;p&gt;But what if we want to call this function and
-then afterwards call &lt;code class=&quot;highlighter-rouge&quot;&gt;set_x()&lt;/code&gt;?
-We might write something like this:&lt;/p&gt;
-
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;fn do_some_things_wrong&amp;lt;&#39;a&amp;gt;(mut foo : foo::Builder&amp;lt;&#39;a&amp;gt;) {
-   {
-     let slice = init_and_return_slice(foo);
-     slice[0] = 42;
-   }
-   foo.set_x(1.23);
-}
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
-&lt;p&gt;but if we try to compile this function, we get the following typecheck error:&lt;/p&gt;
-
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;main.rs:19:9: 19:12 error: use of moved value: `foo`
-main.rs:19         foo.set_x(1.23);
-                   ^~~
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
-
-&lt;p&gt;The same pass-by-move semantics that were essential to preventing
-aliasing have now become a problem.
-We would like to be
-able to borrow &lt;code class=&quot;highlighter-rouge&quot;&gt;foo&lt;/code&gt; for just the inner block,
-and then reuse it for the final line.
-If &lt;code class=&quot;highlighter-rouge&quot;&gt;foo&lt;/code&gt; were a built-in mutable reference, such a &lt;em&gt;reborrow&lt;/em&gt;
-would take place automatically, and everything would just work.
-Fortunately, we can make do with our custom mutable reference
-if we use the following following function,
-which is also included in the generated code:&lt;/p&gt;
-
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;mod foo {
-  ...
-  impl &amp;lt;&#39;a&amp;gt; Builder &amp;lt;&#39;a&amp;gt; {
-    pub fn borrow&amp;lt;&#39;b&amp;gt;(&amp;amp;&#39;b mut self) -&amp;gt; Builder&amp;lt;&#39;b&amp;gt; { ... }
-  }
-  ...
-}
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
-
-&lt;p&gt;Using this, we can write our function as follows, and it successfully typechecks.&lt;/p&gt;
-
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;fn do_some_things_right&amp;lt;&#39;a&amp;gt;(mut foo : foo::Builder&amp;lt;&#39;a&amp;gt;) {
-    {
-        let slice = init_and_return_slice(foo.borrow());
-        slice[0] = 42
-    }
-    foo.set_x(1.23);
-}
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
-
-&lt;p&gt;So it appears that the main inconviences of using our custom mutable references
-compared to built-in mutable references
-is that we need to add some calls to &lt;code class=&quot;highlighter-rouge&quot;&gt;.borrow()&lt;/code&gt; and maybe add some &lt;code class=&quot;highlighter-rouge&quot;&gt;mut&lt;/code&gt;’s to some bindings.
-In fact, it seems to me that it would be possible for Rust to support
-a built-in &lt;code class=&quot;highlighter-rouge&quot;&gt;Reborrow&lt;/code&gt; trait that could eliminate even these
-inconveniences.&lt;/p&gt;
-
-&lt;p&gt;Finally, in case you’re wondering why we prefer by-move &lt;code class=&quot;highlighter-rouge&quot;&gt;self&lt;/code&gt; over &lt;code class=&quot;highlighter-rouge&quot;&gt;&amp;amp;mut self&lt;/code&gt;
-in our generated accessor methods, suppose that we also define this type in our schema:&lt;/p&gt;
-
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;struct Bar {
-  oneFoo @0 : Foo;
-}
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
-
-&lt;p&gt;Using by-move &lt;code class=&quot;highlighter-rouge&quot;&gt;self&lt;/code&gt; allows us to return references deep in the interior of a &lt;code class=&quot;highlighter-rouge&quot;&gt;Bar&lt;/code&gt;, like this:&lt;/p&gt;
-
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;fn init_field_and_return_slice&amp;lt;&#39;a&amp;gt;(bar : bar::Builder&amp;lt;&#39;a&amp;gt;) -&amp;gt; &amp;amp;&#39;a mut [u8] {
-    bar.init_one_foo().init_blob(100).slice_mut(5, 10)
-}
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
-
-&lt;p&gt;If &lt;code class=&quot;highlighter-rouge&quot;&gt;init_blob()&lt;/code&gt; instead took a &lt;code class=&quot;highlighter-rouge&quot;&gt;&amp;amp;mut self&lt;/code&gt; parameter, this function would fail to typecheck
-because the &lt;code class=&quot;highlighter-rouge&quot;&gt;foo::Builder&lt;/code&gt; returned by &lt;code class=&quot;highlighter-rouge&quot;&gt;bar.init_one_foo()&lt;/code&gt; does not live long enough.&lt;/p&gt;
-
-&lt;h4 id=&quot;update-26-march-2018-a-nameupdatea&quot;&gt;update (26 March 2018) &lt;a name=&quot;update&quot;&gt;&lt;/a&gt;&lt;/h4&gt;
-&lt;p&gt;The &lt;code class=&quot;highlighter-rouge&quot;&gt;borrow()&lt;/code&gt; method has been &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/pull/91/commits/aafa9514c7ff37b0702d45b42bd129d6e39e99c8&quot;&gt;renamed&lt;/a&gt;
-to &lt;code class=&quot;highlighter-rouge&quot;&gt;reborrow()&lt;/code&gt;.&lt;/p&gt;
-
-</description>
-                                <pubDate>Sat, 27 Dec 2014 00:00:00 -0500</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2014/12/27/custom-mutable-references.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2014/12/27/custom-mutable-references.html</guid>
                         </item>
                 
         </channel>
