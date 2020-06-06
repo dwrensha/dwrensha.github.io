@@ -61,8 +61,12 @@ continue to work without being altered:</p>
 
 <div class="highlighter-rouge"><pre class="highlight"><code><span class="err">#</span><span class="p">[</span><span class="nf">cfg</span><span class="p">(</span><span class="n">feature</span><span class="o">=</span><span class="s">"std"</span><span class="p">)]</span>
 <span class="k">mod</span> <span class="n">std_impls</span> <span class="p">{</span>
-  <span class="k">impl</span> <span class="o">&lt;</span><span class="n">R</span><span class="o">&gt;</span> <span class="nn">crate</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Read</span> <span class="k">for</span> <span class="n">R</span> <span class="n">where</span> <span class="n">R</span><span class="p">:</span> <span class="nn">std</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Read</span> <span class="p">{</span> <span class="err">...</span> <span class="p">}</span>
-  <span class="k">impl</span> <span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span> <span class="nn">crate</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Write</span> <span class="k">for</span> <span class="n">W</span> <span class="n">where</span> <span class="n">W</span><span class="p">:</span> <span class="nn">std</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Write</span> <span class="p">{</span> <span class="err">...</span> <span class="p">}</span>
+  <span class="k">impl</span> <span class="o">&lt;</span><span class="n">R</span><span class="p">:</span> <span class="nn">std</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Read</span><span class="o">&gt;</span> <span class="nn">crate</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Read</span> <span class="k">for</span> <span class="n">R</span> <span class="p">{</span>
+    <span class="err">...</span>
+  <span class="p">}</span>
+  <span class="k">impl</span> <span class="o">&lt;</span><span class="n">W</span><span class="p">:</span> <span class="nn">std</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Write</span><span class="o">&gt;</span> <span class="nn">crate</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Write</span> <span class="k">for</span> <span class="n">W</span> <span class="p">{</span>
+    <span class="err">...</span>
+  <span class="p">}</span>
 <span class="p">}</span>
 </code></pre>
 </div>
