@@ -1,0 +1,116 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title> no_std support </title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<link rel="stylesheet" href="/capnproto-rust/css/main.css" type="text/css" />
+<link rel="stylesheet" href="/capnproto-rust/css/syntax.css" type="text/css" />
+<link rel="shortcut icon" href="/capnproto-rust/favicon.png">
+</head>
+<body>
+<p>
+06 Jun 2020
+<p>
+
+<p>Over the past few years,
+<a href="https://github.com/capnproto/capnproto-rust/issues/71">many people have expressed interest</a>
+in using capnproto-rust in <a href="https://rust-embedded.github.io/book/intro/no-std.html">no_std</a> environments
+– that is, without pulling in the Rust standard library.
+Today I’m happy to announce that the latest release, version 0.13.0, supports that.</p>
+
+<p>To use a <code class="highlighter-rouge">no_std</code> capnproto-rust,
+update your <code class="highlighter-rouge">Cargo.toml</code> to the new <code class="highlighter-rouge">capnp</code> version and disable default features, like this:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code><span class="nn">[capnp.dependencies]</span>
+<span class="py">version</span> <span class="p">=</span> <span class="s">"0.13"</span>
+<span class="py">default-features</span> <span class="p">=</span> <span class="kc">false</span>
+</code></pre>
+</div>
+
+<p>This turns off the new
+<a href="https://github.com/capnproto/capnproto-rust/blob/e2836823318d95668f10443d9f2feea8378ae95f/capnp/Cargo.toml#L36-L38">“std” feature flag</a>
+in the <code class="highlighter-rouge">capnp</code> crate.
+In turn, that feature controls a
+<a href="https://github.com/capnproto/capnproto-rust/blob/e2836823318d95668f10443d9f2feea8378ae95f/capnp/src/lib.rs#L30">crate-level <code class="highlighter-rouge">no_std</code> attribute</a>
+and gates the parts of the crate that depend on the standard library.</p>
+
+<h2 id="example">Example</h2>
+
+<p>To see <code class="highlighter-rouge">no_std</code> capnproto-rust in action,
+check out this <a href="https://github.com/capnproto/capnproto-rust/tree/master/example/wasm-hello-world">new example</a>
+that passes data to a WebAssembly function through a Cap’n Proto message.
+I observed the size of this example’s generated wasm code to shrink from
+1.6MB down to 660KB when I added <code class="highlighter-rouge">#![no_std]</code>.</p>
+
+<h2 id="io-traits">I/O traits</h2>
+
+<p>The biggest challenge in getting capnproto-rust to work with <code class="highlighter-rouge">no_std</code> was dealing with
+input/output traits.
+In previous releases, capnproto-rust defined its main serialization functions in terms of
+<code class="highlighter-rouge">std::io::Read</code> and <code class="highlighter-rouge">std::io::Write</code>. That would be a problem in a <code class="highlighter-rouge">no_std</code> context,
+because those traits are <a href="https://github.com/rust-lang/rust/issues/48331">stuck in <code class="highlighter-rouge">std</code></a>.</p>
+
+<p>The solution I settled on was to define custom
+<a href="https://github.com/capnproto/capnproto-rust/blob/e2836823318d95668f10443d9f2feea8378ae95f/capnp/src/io.rs#L9"><code class="highlighter-rouge">capnp::io::Read</code></a>
+and
+<a href="https://github.com/capnproto/capnproto-rust/blob/e2836823318d95668f10443d9f2feea8378ae95f/capnp/src/io.rs#L44"><code class="highlighter-rouge">capnp::io::Write</code></a>
+traits, and then to define the <code class="highlighter-rouge">capnp</code> serialization functions in terms of those.</p>
+
+<p>Blanket impls like the following then allow existing call sites to
+continue to work without being altered:</p>
+
+<div class="highlighter-rouge"><pre class="highlight"><code><span class="err">#</span><span class="p">[</span><span class="nf">cfg</span><span class="p">(</span><span class="n">feature</span><span class="o">=</span><span class="s">"std"</span><span class="p">)]</span>
+<span class="k">mod</span> <span class="n">std_impls</span> <span class="p">{</span>
+  <span class="k">impl</span> <span class="o">&lt;</span><span class="n">R</span><span class="o">&gt;</span> <span class="nn">crate</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Read</span> <span class="k">for</span> <span class="n">R</span> <span class="n">where</span> <span class="n">R</span><span class="p">:</span> <span class="nn">std</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Read</span> <span class="p">{</span> <span class="err">...</span> <span class="p">}</span>
+  <span class="k">impl</span> <span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span> <span class="nn">crate</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Write</span> <span class="k">for</span> <span class="n">W</span> <span class="n">where</span> <span class="n">W</span><span class="p">:</span> <span class="nn">std</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Write</span> <span class="p">{</span> <span class="err">...</span> <span class="p">}</span>
+<span class="p">}</span>
+</code></pre>
+</div>
+
+<h2 id="why-now">Why now?</h2>
+
+<p>Two recent Rust developments paved the way for today’s release:</p>
+
+<ol>
+  <li>The <a href="https://github.com/rust-lang/rust/pull/59675">stabilization of the alloc crate</a>
+means that collections like <code class="highlighter-rouge">Vec</code> are now usable with <code class="highlighter-rouge">no_std</code>. (capnproto-rust strives
+to minimize allocations, but still relies on the global allocator for some things like
+messages with a dynamic number of segments.)</li>
+  <li><a href="https://github.com/rust-lang/rust/pull/69033">no_std support for async/await</a> means that
+we can use <code class="highlighter-rouge">async</code> blocks wherever we want. Previously, we would have needed to define
+some custom <code class="highlighter-rouge">Future</code> implementations to avoid putting an <code class="highlighter-rouge">async</code> block in the <code class="highlighter-rouge">capnp</code> crate.</li>
+</ol>
+
+<h2 id="thanks">Thanks</h2>
+
+<p>Many people contributed useful ideas in the discussion that led up to the 0.13 release.
+I am especially grateful to
+<a href="https://github.com/nicholastmosher">nicholastmosher</a>
+and <a href="https://github.com/bbqsrc">bbqsrc</a>
+for submitting diffs that explored the
+design space.</p>
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+
+<div>
+ <a href="https://www.github.com/capnproto/capnproto-rust">
+   capnproto-rust on github
+ </a>
+</div>
+
+<div>
+ <a href="/capnproto-rust/index.html">
+   more posts
+ </a>
+</div>
+
+<a href="/capnproto-rust/feed.xml">
+<img src="/capnproto-rust/assets/rss.png"
+     width="14"/>
+</a>
+
+
+</body>
