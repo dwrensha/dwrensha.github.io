@@ -7,6 +7,54 @@
                 <atom:link href="http://dwrensha.github.io/capnproto-rust/feed.xml" rel="self" type="application/rss+xml" />
                 
                         <item>
+                                <title>atomic read limiting</title>
+                                <description>&lt;p&gt;Today I’m releasing capnproto-rust version 0.14.
+The main change is a new
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/c9b12bc765d5cc4e711890b97f065b855516ba71/capnp/Cargo.toml#L40-L43&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;sync_reader&lt;/code&gt;&lt;/a&gt;
+feature that allows messages to be shared between multiple threads.
+With the new feature, you can, for example, wrap a &lt;code class=&quot;highlighter-rouge&quot;&gt;capnp::message::Reader&lt;/code&gt;
+with &lt;a href=&quot;https://crates.io/crates/lazy_static&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;lazy_static&lt;/code&gt;&lt;/a&gt; or
+&lt;a href=&quot;https://crates.io/crates/once_cell&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;once_cell&lt;/code&gt;&lt;/a&gt; and then read it from anywhere else
+in your program.
+Previously, doing so was not possible because the
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/c9b12bc765d5cc4e711890b97f065b855516ba71/capnp/src/message.rs#L38-L55&quot;&gt;message traversal limit&lt;/a&gt;
+was tracked through a &lt;code class=&quot;highlighter-rouge&quot;&gt;Cell&lt;/code&gt;, causing &lt;code class=&quot;highlighter-rouge&quot;&gt;message::Reader&lt;/code&gt; to not be
+&lt;a href=&quot;https://doc.rust-lang.org/std/marker/trait.Sync.html&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;Sync&lt;/code&gt;&lt;/a&gt;.
+Now, when &lt;code class=&quot;highlighter-rouge&quot;&gt;sync_reader&lt;/code&gt; is enabled, the traversal limit
+is tracked through an &lt;code class=&quot;highlighter-rouge&quot;&gt;AtomicUsize&lt;/code&gt;, which can be safely
+shared between threads.&lt;/p&gt;
+
+&lt;p&gt;To minimize the performance impact, the new implementation uses
+&lt;code class=&quot;highlighter-rouge&quot;&gt;Ordering::Relaxed&lt;/code&gt; when accessing the atomic counter.
+When I measured the performance on a few benchmarks,
+I was initially discouraged because
+&lt;a href=&quot;https://doc.rust-lang.org/std/sync/atomic/struct.AtomicUsize.html#method.fetch_sub&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;fetch_sub()&lt;/code&gt;&lt;/a&gt;
+seemed to be slowing things down significantly.
+Fortunately, I found that splitting &lt;code class=&quot;highlighter-rouge&quot;&gt;fetch_sub()&lt;/code&gt; into separate &lt;code class=&quot;highlighter-rouge&quot;&gt;load()&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;store()&lt;/code&gt;
+steps recovered the lost time.
+With the &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/c9b12bc765d5cc4e711890b97f065b855516ba71/capnp/src/private/read_limiter.rs#L54-L71&quot;&gt;most recent version&lt;/a&gt;,
+I am unable to detect any speed difference between the new atomic implementation
+and the old &lt;code class=&quot;highlighter-rouge&quot;&gt;Cell&lt;/code&gt;-based one.&lt;/p&gt;
+
+&lt;p&gt;I would have liked to unconditionally enable atomic read limiting,
+but unfortunately &lt;code class=&quot;highlighter-rouge&quot;&gt;AtomicUsize&lt;/code&gt; is not available on all platforms.
+For example, rustc
+does not support any atomics on
+&lt;a href=&quot;https://github.com/rust-lang/rust/blob/1b6b06a03a00a7c9f156bff130b72e90b79e1127/compiler/rustc_target/src/spec/riscv32i_unknown_none_elf.rs#L15&quot;&gt;riscv32i-unknown-none-elf&lt;/a&gt;.
+(I am unsure whether that’s an inherent property of the platform,
+or whether it’s an implementation hole that could be filled in later.)&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&quot;https://github.com/appaquet&quot;&gt;@appaquet&lt;/a&gt; deserves credit
+for submitting &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/pull/201&quot;&gt;the pull request&lt;/a&gt;
+with this change and
+for patiently iterating on it with me.&lt;/p&gt;
+</description>
+                                <pubDate>Sat, 19 Dec 2020 00:00:00 -0500</pubDate>
+                                <link>http://dwrensha.github.io/capnproto-rust/2020/12/19/atomic-read-limiting.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2020/12/19/atomic-read-limiting.html</guid>
+                        </item>
+                
+                        <item>
                                 <title>no_std support</title>
                                 <description>&lt;p&gt;Over the past few years,
 &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/issues/71&quot;&gt;many people have expressed interest&lt;/a&gt;
@@ -566,7 +614,7 @@ or it could use one of the emerging asynchronous database drivers
 to make queries on a remote database, or it could do,
 well, anything that can be expressed in terms of the &lt;code class=&quot;highlighter-rouge&quot;&gt;Future&lt;/code&gt; trait.
 As a quick demonstration, I have implemented a
-simple &lt;a href=&quot;https://github.com/dwrensha/capnp-rpc-rust/tree/master/examples/http-requests&quot;&gt;example&lt;/a&gt;
+simple &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/tree/capnp-v0.8.17/capnp-rpc/examples/http-requests&quot;&gt;example&lt;/a&gt;
 that uses &lt;a href=&quot;https://github.com/tokio-rs/tokio-curl&quot;&gt;tokio-curl&lt;/a&gt;
 to make asynchronous HTTP requests.&lt;/p&gt;
 
@@ -903,132 +951,6 @@ defining hierarchies of errors wrapping other errors.&lt;/p&gt;
                                 <pubDate>Mon, 11 Jan 2016 00:00:00 -0500</pubDate>
                                 <link>http://dwrensha.github.io/capnproto-rust/2016/01/11/async-rpc.html</link>
                                 <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2016/01/11/async-rpc.html</guid>
-                        </item>
-                
-                        <item>
-                                <title>asynchronous I/O with promises</title>
-                                <description>&lt;p&gt;My Rust &lt;a href=&quot;https://github.com/dwrensha/capnp-rpc-rust&quot;&gt;implementation&lt;/a&gt;
-of the Cap’n Proto remote procedure call protocol
-was designed in a bygone era.
-Back then, Rust’s runtime library
-provided thread-like “tasks”
-that were backed by &lt;a href=&quot;https://github.com/alexcrichton/green-rs&quot;&gt;libgreen&lt;/a&gt;
-and were therefore “cheap to spawn.”
-These enabled
-&lt;a href=&quot;http://en.wikipedia.org/wiki/Communicating_sequential_processes&quot;&gt;CSP&lt;/a&gt;-style
-programming
-with beautifully simple blocking I/O operations
-that were, under the hood,
-dispatched through &lt;a href=&quot;https://github.com/libuv/libuv&quot;&gt;libuv&lt;/a&gt;.
-While the question of whether this model was actually efficient
-was a matter of much &lt;a href=&quot;https://github.com/rust-lang/rfcs/pull/219&quot;&gt;discussion&lt;/a&gt;,
-I personally enjoyed using it and found it
-easy to reason about.&lt;/p&gt;
-
-&lt;p&gt;For better or worse, the era of libgreen
-&lt;a href=&quot;https://github.com/rust-lang/rfcs/blob/master/text/0230-remove-runtime.md&quot;&gt;has ended&lt;/a&gt;.
-Code originally written for libgreen can still work,
-but because each “task” is now its own system-level thread,
-calling them “lightweight” is more of a stretch than ever.
-As I’ve maintained capnp-rpc-rust over the past year,
-its need for a different approach to concurrency
-has become increasingly apparent.&lt;/p&gt;
-
-&lt;h2 id=&quot;introducing-gjhttpsgithubcomdwrenshagj&quot;&gt;Introducing &lt;a href=&quot;https://github.com/dwrensha/gj&quot;&gt;GJ&lt;/a&gt;&lt;/h2&gt;
-
-&lt;p&gt;&lt;a href=&quot;https://github.com/dwrensha/gj&quot;&gt;GJ&lt;/a&gt; is a new Rust library that provides
-abstractions for event-loop concurrency and asynchronous I/O,
-aiming to meet the needs of Cap’n Proto RPC.
-The main ideas in GJ are taken from
-&lt;a href=&quot;https://capnproto.org/cxxrpc.html#kj-concurrency-framework&quot;&gt;KJ&lt;/a&gt;,
-a C++ library that forms the foundation of capnproto-c++.
-At &lt;a href=&quot;https://sandstorm.io&quot;&gt;Sandstorm&lt;/a&gt;, we have been
-successfully using KJ-based concurrency
-in our core infrastructure for a while now;
-some examples you can look at include a
-&lt;a href=&quot;https://github.com/sandstorm-io/sandstorm/blob/3a3e93eb142969125aa8573df4edc6c62efbeebe/src/sandstorm/sandstorm-http-bridge.c++&quot;&gt;bridge&lt;/a&gt; that translates between
-HTTP and &lt;a href=&quot;https://github.com/sandstorm-io/sandstorm/blob/3a3e93eb142969125aa8573df4edc6c62efbeebe/src/sandstorm/web-session.capnp&quot;&gt;this Cap’n Proto interface&lt;/a&gt;,
-and a
-&lt;a href=&quot;https://github.com/sandstorm-io/sandstorm/blob/3a3e93eb142969125aa8573df4edc6c62efbeebe/src/sandstorm/fuse.c++&quot;&gt;Cap’n Proto driver&lt;/a&gt;
-to a FUSE filesystem.&lt;/p&gt;
-
-&lt;p&gt;The core abstraction in GJ is the &lt;code class=&quot;highlighter-rouge&quot;&gt;Promise&amp;lt;T&amp;gt;&lt;/code&gt;, representing
-a computation that may eventually resolve to a value of type &lt;code class=&quot;highlighter-rouge&quot;&gt;T&lt;/code&gt;.
-Instead of blocking, any non-immediate operation in GJ
-returns a promise that gets fulfilled upon the operation’s completion.
-To use a promise, you register a callback with the &lt;code class=&quot;highlighter-rouge&quot;&gt;then()&lt;/code&gt; method.
-For example:&lt;/p&gt;
-
-&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;connect_then_write&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;addr&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;gj&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;io&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;NetworkAddress&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
-                         &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;gj&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Promise&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;addr&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.connect&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.then&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(|&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stream&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;|&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-       &lt;span class=&quot;c&quot;&gt;// The connection has succeeded. Let&#39;s write some data.&lt;/span&gt;
-       &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;Ok&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stream&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.write&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nd&quot;&gt;vec!&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]));&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;})&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.then&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(|(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stream&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)|&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-       &lt;span class=&quot;c&quot;&gt;// The first write has succeeded. Let&#39;s write some more.&lt;/span&gt;
-       &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;Ok&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stream&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.write&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nd&quot;&gt;vec!&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;4&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;5&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;6&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]));&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;})&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.then&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(|(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;stream&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)|&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-       &lt;span class=&quot;c&quot;&gt;// The second write has succeeded. Let&#39;s just return;&lt;/span&gt;
-       &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;Ok&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;gj&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;Promise&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;fulfilled&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(()));&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;});&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
-
-&lt;p&gt;Callbacks registered with &lt;code class=&quot;highlighter-rouge&quot;&gt;then()&lt;/code&gt; never move between threads, so they do
-not need to be thread-safe.
-In Rust jargon, the callbacks are &lt;code class=&quot;highlighter-rouge&quot;&gt;FnOnce&lt;/code&gt; closures that need not be &lt;code class=&quot;highlighter-rouge&quot;&gt;Send&lt;/code&gt;.
-This means that you can share mutable data between them
-without any need for mutexes or atomics. For example, to share a counter,
-you could do this:&lt;/p&gt;
-
-&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;ticker&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;counter&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;Rc&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Cell&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u32&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-              &lt;span class=&quot;n&quot;&gt;delay_ms&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;gj&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Promise&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;gj&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;io&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Timer&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.after_delay_ms&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;delay_ms&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.then&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;move&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;|()|&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-        &lt;span class=&quot;nd&quot;&gt;println!&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;the counter is at: {}&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;counter&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.get&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;());&lt;/span&gt;
-        &lt;span class=&quot;n&quot;&gt;counter&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.set&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;counter&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.get&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;Ok&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;ticker&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;counter&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;delay_ms&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;));&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;});&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-
-&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;two_tickers&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;gj&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Promise&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;Vec&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;counter&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;Rc&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;Cell&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;));&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;gj&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;join_promises&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nd&quot;&gt;vec!&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;ticker&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;counter&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.clone&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(),&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;500&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt;
-                                  &lt;span class=&quot;nf&quot;&gt;ticker&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;counter&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;750&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)]);&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
-
-&lt;p&gt;If you do want to use multiple threads, GJ makes it easy to set up an
-event loop in each and to communicate between them over streams of bytes.&lt;/p&gt;
-
-&lt;p&gt;To learn more about what’s possible with GJ,
-I encourage you to explore some of more complete
-&lt;a href=&quot;https://github.com/dwrensha/gj/tree/master/examples&quot;&gt;examples&lt;/a&gt;
-in the git repo.&lt;/p&gt;
-
-&lt;h2 id=&quot;onwards&quot;&gt;Onwards!&lt;/h2&gt;
-
-&lt;p&gt;Two things in particular have made working GJ especially fun so far:&lt;/p&gt;
-
-&lt;ol&gt;
-  &lt;li&gt;KJ is written in clean, modern C++ that translates nicely into idiomatic Rust.
-The translation is fairly direct most of the time, and parts that don’t translate directly make
-for fun puzzles! For one such nontrival translation, compare KJ’s
-&lt;a href=&quot;https://github.com/sandstorm-io/capnproto/blob/6315eaed384199702240c8d1b8d8186ae55e24e9/c%2B%2B/src/kj/async-io.h#L54&quot;&gt;AsyncOutputStream&lt;/a&gt;
-to GJ’s
-&lt;a href=&quot;https://github.com/dwrensha/gj/blob/8156f3cc89af96024e1bc0001481b11e40bef0f5/src/io.rs#L55&quot;&gt;AsyncWrite&lt;/a&gt;.&lt;/li&gt;
-  &lt;li&gt;The excellent &lt;a href=&quot;https://github.com/carllerche/mio&quot;&gt;mio&lt;/a&gt; library allows us to not worry
-about system-specific APIs. It provides a uniform abstraction on top of
-&lt;code class=&quot;highlighter-rouge&quot;&gt;epoll&lt;/code&gt; on Linux and &lt;code class=&quot;highlighter-rouge&quot;&gt;kqueue&lt;/code&gt; on OSX, and maybe someday even &lt;code class=&quot;highlighter-rouge&quot;&gt;IOCP&lt;/code&gt; in Windows.&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;p&gt;Although basics of GJ are operational today,
-there’s still a lot of work left to do.
-If this is a project that sounds interesting
-or useful to you, I’d love to have your help!&lt;/p&gt;
-
-</description>
-                                <pubDate>Mon, 25 May 2015 00:00:00 -0400</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2015/05/25/asynchronous-io-with-promises.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2015/05/25/asynchronous-io-with-promises.html</guid>
                         </item>
                 
         </channel>

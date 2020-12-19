@@ -1,0 +1,79 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title> atomic read limiting </title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<link rel="stylesheet" href="/capnproto-rust/css/main.css" type="text/css" />
+<link rel="stylesheet" href="/capnproto-rust/css/syntax.css" type="text/css" />
+<link rel="shortcut icon" href="/capnproto-rust/favicon.png">
+</head>
+<body>
+<p>
+19 Dec 2020
+<p>
+
+<p>Today I’m releasing capnproto-rust version 0.14.
+The main change is a new
+<a href="https://github.com/capnproto/capnproto-rust/blob/c9b12bc765d5cc4e711890b97f065b855516ba71/capnp/Cargo.toml#L40-L43"><code class="highlighter-rouge">sync_reader</code></a>
+feature that allows messages to be shared between multiple threads.
+With the new feature, you can, for example, wrap a <code class="highlighter-rouge">capnp::message::Reader</code>
+with <a href="https://crates.io/crates/lazy_static"><code class="highlighter-rouge">lazy_static</code></a> or
+<a href="https://crates.io/crates/once_cell"><code class="highlighter-rouge">once_cell</code></a> and then read it from anywhere else
+in your program.
+Previously, doing so was not possible because the
+<a href="https://github.com/capnproto/capnproto-rust/blob/c9b12bc765d5cc4e711890b97f065b855516ba71/capnp/src/message.rs#L38-L55">message traversal limit</a>
+was tracked through a <code class="highlighter-rouge">Cell</code>, causing <code class="highlighter-rouge">message::Reader</code> to not be
+<a href="https://doc.rust-lang.org/std/marker/trait.Sync.html"><code class="highlighter-rouge">Sync</code></a>.
+Now, when <code class="highlighter-rouge">sync_reader</code> is enabled, the traversal limit
+is tracked through an <code class="highlighter-rouge">AtomicUsize</code>, which can be safely
+shared between threads.</p>
+
+<p>To minimize the performance impact, the new implementation uses
+<code class="highlighter-rouge">Ordering::Relaxed</code> when accessing the atomic counter.
+When I measured the performance on a few benchmarks,
+I was initially discouraged because
+<a href="https://doc.rust-lang.org/std/sync/atomic/struct.AtomicUsize.html#method.fetch_sub"><code class="highlighter-rouge">fetch_sub()</code></a>
+seemed to be slowing things down significantly.
+Fortunately, I found that splitting <code class="highlighter-rouge">fetch_sub()</code> into separate <code class="highlighter-rouge">load()</code> and <code class="highlighter-rouge">store()</code>
+steps recovered the lost time.
+With the <a href="https://github.com/capnproto/capnproto-rust/blob/c9b12bc765d5cc4e711890b97f065b855516ba71/capnp/src/private/read_limiter.rs#L54-L71">most recent version</a>,
+I am unable to detect any speed difference between the new atomic implementation
+and the old <code class="highlighter-rouge">Cell</code>-based one.</p>
+
+<p>I would have liked to unconditionally enable atomic read limiting,
+but unfortunately <code class="highlighter-rouge">AtomicUsize</code> is not available on all platforms.
+For example, rustc
+does not support any atomics on
+<a href="https://github.com/rust-lang/rust/blob/1b6b06a03a00a7c9f156bff130b72e90b79e1127/compiler/rustc_target/src/spec/riscv32i_unknown_none_elf.rs#L15">riscv32i-unknown-none-elf</a>.
+(I am unsure whether that’s an inherent property of the platform,
+or whether it’s an implementation hole that could be filled in later.)</p>
+
+<p><a href="https://github.com/appaquet">@appaquet</a> deserves credit
+for submitting <a href="https://github.com/capnproto/capnproto-rust/pull/201">the pull request</a>
+with this change and
+for patiently iterating on it with me.</p>
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+
+<div>
+ <a href="https://www.github.com/capnproto/capnproto-rust">
+   capnproto-rust on github
+ </a>
+</div>
+
+<div>
+ <a href="/capnproto-rust/index.html">
+   more posts
+ </a>
+</div>
+
+<a href="/capnproto-rust/feed.xml">
+<img src="/capnproto-rust/assets/rss.png"
+     width="14"/>
+</a>
+
+
+</body>
