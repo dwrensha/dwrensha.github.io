@@ -32,6 +32,8 @@ I was initially discouraged because
 seemed to be slowing things down significantly.
 Fortunately, I found that splitting &lt;code class=&quot;highlighter-rouge&quot;&gt;fetch_sub()&lt;/code&gt; into separate &lt;code class=&quot;highlighter-rouge&quot;&gt;load()&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;store()&lt;/code&gt;
 steps recovered the lost time.
+(Such a split may cause the read limiter to undercount reads,
+but we are okay with that level of imprecision.)
 With the &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/c9b12bc765d5cc4e711890b97f065b855516ba71/capnp/src/private/read_limiter.rs#L54-L71&quot;&gt;most recent version&lt;/a&gt;,
 I am unable to detect any speed difference between the new atomic implementation
 and the old &lt;code class=&quot;highlighter-rouge&quot;&gt;Cell&lt;/code&gt;-based one.&lt;/p&gt;
