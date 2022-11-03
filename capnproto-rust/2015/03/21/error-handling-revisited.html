@@ -19,8 +19,8 @@ In particular, we no longer use the
 default value fallback strategy discussed in
 <a href="/capnproto-rust/2014/04/06/error-handling.html">this previous post</a>.
 Now any method that might fail on malformed
-input returns a <code class="highlighter-rouge">::std::result::Result&lt;T, ::capnp::Error&gt;</code>
-instead of a bare <code class="highlighter-rouge">T</code>.</p>
+input returns a <code class="language-plaintext highlighter-rouge">::std::result::Result&lt;T, ::capnp::Error&gt;</code>
+instead of a bare <code class="language-plaintext highlighter-rouge">T</code>.</p>
 
 <p>These changes remove a lot of complexity and
 have allowed me to delete a significant amount of code.
@@ -29,19 +29,19 @@ users of the library.
 Now the type signatures of the getter methods
 make it clear exactly where input validation errors
 are possible.
-The <code class="highlighter-rouge">try!()</code> macro makes it easy enough to deal
+The <code class="language-plaintext highlighter-rouge">try!()</code> macro makes it easy enough to deal
 with such errors in a principled manner.</p>
 
 <p>Here is what a small example looks like after the changes:</p>
 
 <figure class="highlight"><pre><code class="language-rust" data-lang="rust"><span class="k">pub</span> <span class="k">fn</span> <span class="nf">print_address_book</span><span class="p">(</span>
         <span class="n">address_book</span><span class="p">:</span> <span class="nn">address_book</span><span class="p">::</span><span class="n">Reader</span><span class="p">)</span>
-        <span class="k">-&gt;</span> <span class="p">::</span><span class="nn">std</span><span class="p">::</span><span class="nn">result</span><span class="p">::</span><span class="n">Result</span><span class="o">&lt;</span><span class="p">(),</span> <span class="p">::</span><span class="nn">capnp</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
+        <span class="k">-&gt;</span> <span class="p">::</span><span class="nn">std</span><span class="p">::</span><span class="nn">result</span><span class="p">::</span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span> <span class="p">::</span><span class="nn">capnp</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span>
 <span class="p">{</span>
-    <span class="k">for</span> <span class="n">person</span> <span class="n">in</span> <span class="nd">try!</span><span class="p">(</span><span class="n">address_book</span><span class="nf">.get_people</span><span class="p">())</span><span class="nf">.iter</span><span class="p">()</span> <span class="p">{</span>
+    <span class="k">for</span> <span class="n">person</span> <span class="k">in</span> <span class="k">try</span><span class="o">!</span><span class="p">(</span><span class="n">address_book</span><span class="nf">.get_people</span><span class="p">())</span><span class="nf">.iter</span><span class="p">()</span> <span class="p">{</span>
         <span class="nd">println!</span><span class="p">(</span><span class="s">"{}: {}"</span><span class="p">,</span> <span class="nd">try!</span><span class="p">(</span><span class="n">person</span><span class="nf">.get_name</span><span class="p">()),</span>
                            <span class="nd">try!</span><span class="p">(</span><span class="n">person</span><span class="nf">.get_email</span><span class="p">()));</span>
-        <span class="k">for</span> <span class="n">phone</span> <span class="n">in</span> <span class="nd">try!</span><span class="p">(</span><span class="n">person</span><span class="nf">.get_phones</span><span class="p">())</span><span class="nf">.iter</span><span class="p">()</span> <span class="p">{</span>
+        <span class="k">for</span> <span class="n">phone</span> <span class="k">in</span> <span class="k">try</span><span class="o">!</span><span class="p">(</span><span class="n">person</span><span class="nf">.get_phones</span><span class="p">())</span><span class="nf">.iter</span><span class="p">()</span> <span class="p">{</span>
             <span class="k">let</span> <span class="n">type_name</span> <span class="o">=</span> <span class="k">match</span> <span class="n">phone</span><span class="nf">.get_type</span><span class="p">()</span> <span class="p">{</span>
                 <span class="nf">Ok</span><span class="p">(</span><span class="nn">person</span><span class="p">::</span><span class="nn">phone_number</span><span class="p">::</span><span class="nn">Type</span><span class="p">::</span><span class="n">Mobile</span><span class="p">)</span> <span class="k">=&gt;</span> <span class="s">"mobile"</span><span class="p">,</span>
                 <span class="nf">Ok</span><span class="p">(</span><span class="nn">person</span><span class="p">::</span><span class="nn">phone_number</span><span class="p">::</span><span class="nn">Type</span><span class="p">::</span><span class="n">Home</span><span class="p">)</span> <span class="k">=&gt;</span> <span class="s">"home"</span><span class="p">,</span>
@@ -71,20 +71,20 @@ with such errors in a principled manner.</p>
 <span class="p">}</span></code></pre></figure>
 
 <p>Notice that there are in fact two types of errors being dealt with here.
-There is <code class="highlighter-rouge">::capnp::Error</code>, which gets returned
+There is <code class="language-plaintext highlighter-rouge">::capnp::Error</code>, which gets returned
 when a malformed pointer field is encountered in the encoded message.
-There is also <code class="highlighter-rouge">::capnp::NotInSchema</code>, which indicates that
+There is also <code class="language-plaintext highlighter-rouge">::capnp::NotInSchema</code>, which indicates that
 an enumerant or union discriminant value was
 outside of the range defined in the schema.
 The second type of error can occur if
 the encoded data was constructed using a newer version of the schema.
 Instead of ignoring such cases, as in the above code, we might instead
 wish to propagate their errors.
-Because <code class="highlighter-rouge">::capnp::Error</code> implements <code class="highlighter-rouge">::std::error::FromError&lt;::capnp::NotInSchema&gt;</code>,
-we can easily accomplish that using the <code class="highlighter-rouge">try!()</code> macro:</p>
+Because <code class="language-plaintext highlighter-rouge">::capnp::Error</code> implements <code class="language-plaintext highlighter-rouge">::std::error::FromError&lt;::capnp::NotInSchema&gt;</code>,
+we can easily accomplish that using the <code class="language-plaintext highlighter-rouge">try!()</code> macro:</p>
 
-<figure class="highlight"><pre><code class="language-rust" data-lang="rust">            <span class="c">//...</span>
-            <span class="k">let</span> <span class="n">type_name</span> <span class="o">=</span> <span class="k">match</span> <span class="nd">try!</span><span class="p">(</span><span class="n">phone</span><span class="nf">.get_type</span><span class="p">())</span> <span class="p">{</span>
+<figure class="highlight"><pre><code class="language-rust" data-lang="rust">            <span class="c1">//...</span>
+            <span class="k">let</span> <span class="n">type_name</span> <span class="o">=</span> <span class="k">match</span> <span class="k">try</span><span class="o">!</span><span class="p">(</span><span class="n">phone</span><span class="nf">.get_type</span><span class="p">())</span> <span class="p">{</span>
                 <span class="nn">person</span><span class="p">::</span><span class="nn">phone_number</span><span class="p">::</span><span class="nn">Type</span><span class="p">::</span><span class="n">Mobile</span> <span class="k">=&gt;</span> <span class="s">"mobile"</span><span class="p">,</span>
                 <span class="nn">person</span><span class="p">::</span><span class="nn">phone_number</span><span class="p">::</span><span class="nn">Type</span><span class="p">::</span><span class="n">Home</span> <span class="k">=&gt;</span> <span class="s">"home"</span><span class="p">,</span>
                 <span class="nn">person</span><span class="p">::</span><span class="nn">phone_number</span><span class="p">::</span><span class="nn">Type</span><span class="p">::</span><span class="n">Work</span> <span class="k">=&gt;</span> <span class="s">"work"</span><span class="p">,</span>
@@ -93,7 +93,7 @@ we can easily accomplish that using the <code class="highlighter-rouge">try!()</
 <p>A year ago when I wrote the previous post on error handling,
 the main reason that I decided not to go with return-value-based
 error handling was that I thought it felt too heavyweight.
-My sense now is that the <code class="highlighter-rouge">try!()</code> macro and <code class="highlighter-rouge">FromError</code> trait
+My sense now is that the <code class="language-plaintext highlighter-rouge">try!()</code> macro and <code class="language-plaintext highlighter-rouge">FromError</code> trait
 can make things quite usable.</p>
 
 

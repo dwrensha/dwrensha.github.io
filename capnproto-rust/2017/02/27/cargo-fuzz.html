@@ -24,12 +24,12 @@ Fortunately, cargo-fuzz is very simple and fast to get running.
 It quickly found several issues in capnproto-rust, all of which have been fixed
 in the <a href="https://crates.io/crates/capnp">latest release</a>.</p>
 
-<h4 id="panic-on-invalid-input-fixed-in-6f9bbdcahttpsgithubcomdwrenshacapnproto-rustcommit6f9bbdca5f77146f6f1ff0297295c3fded3a01a6">Panic on invalid input (fixed in <a href="https://github.com/dwrensha/capnproto-rust/commit/6f9bbdca5f77146f6f1ff0297295c3fded3a01a6">6f9bbdca</a>)</h4>
+<h4 id="panic-on-invalid-input-fixed-in-6f9bbdca">Panic on invalid input (fixed in <a href="https://github.com/dwrensha/capnproto-rust/commit/6f9bbdca5f77146f6f1ff0297295c3fded3a01a6">6f9bbdca</a>)</h4>
 
 <p>The original
 <a href="https://github.com/sandstorm-io/capnproto/blob/01f6d5e4ff05fcd67e968b50120dba3fbbb38afb/c%2B%2B/src/capnp/layout.c%2B%2B#L1875">C++ code</a>
-suggests that the branches for dealing with <code class="highlighter-rouge">Far</code> pointers in
-<code class="highlighter-rouge">total_size()</code> and <code class="highlighter-rouge">copy_pointer()</code> are unreachable,
+suggests that the branches for dealing with <code class="language-plaintext highlighter-rouge">Far</code> pointers in
+<code class="language-plaintext highlighter-rouge">total_size()</code> and <code class="language-plaintext highlighter-rouge">copy_pointer()</code> are unreachable,
 so I had translated them into panics.
 It turns out that these branches can in fact be reached
 due to invalid input, rather than any bugs in the code.
@@ -38,9 +38,9 @@ misleading exception will be thrown;
 I’ve submitted <a href="https://github.com/sandstorm-io/capnproto/pull/421">a pull request</a>
 to make the exception more accurate.
 The problem is more serious in the Rust version,
-because Rust makes a sharp distinction between panics and error <code class="highlighter-rouge">Result</code>s.</p>
+because Rust makes a sharp distinction between panics and error <code class="language-plaintext highlighter-rouge">Result</code>s.</p>
 
-<h4 id="cpu-amplifications-fixed-in-e89f162bhttpsgithubcomdwrenshacapnproto-rustcommite89f162b3545096aec77a62157463437d6959ac5-66def413httpsgithubcomdwrenshacapnproto-rustcommit66def4134e8b4fbc2459d77e72717e445175879c">CPU amplifications (fixed in <a href="https://github.com/dwrensha/capnproto-rust/commit/e89f162b3545096aec77a62157463437d6959ac5">e89f162b</a>, <a href="https://github.com/dwrensha/capnproto-rust/commit/66def4134e8b4fbc2459d77e72717e445175879c">66def413</a>)</h4>
+<h4 id="cpu-amplifications-fixed-in-e89f162b-66def413">CPU amplifications (fixed in <a href="https://github.com/dwrensha/capnproto-rust/commit/e89f162b3545096aec77a62157463437d6959ac5">e89f162b</a>, <a href="https://github.com/dwrensha/capnproto-rust/commit/66def4134e8b4fbc2459d77e72717e445175879c">66def413</a>)</h4>
 
 <p>One way to attempt to mount a denial-of-service attack on a
 consumer of Cap’n Proto messages is to carefully craft messages
@@ -58,7 +58,7 @@ for capnproto-c++ in 2015.
 I thought that I had completely updated capnproto-rust with
 fixes for this problem, but apparently I had missed two cases. :-(</p>
 
-<h4 id="panics-on-todos-fixed-in-4c8d5f3httpsgithubcomdwrenshacapnproto-rustcommit4c8d5f369335dc6deef6f9d1e818da5d47e2a36d-77dc713bhttpsgithubcomdwrenshacapnproto-rustcommit77dc713b8486bf61fe657cb82f5d6cb351e76306-10f37267httpsgithubcomdwrenshacapnproto-rustcommit10f37267e3c94d861e946f91dada61fa4dc085ee-3521d4e2httpsgithubcomdwrenshacapnproto-rustcommit3521d4e25877d038154350d9ea5621779724ca5c">Panics on TODOs (fixed in <a href="https://github.com/dwrensha/capnproto-rust/commit/4c8d5f369335dc6deef6f9d1e818da5d47e2a36d">4c8d5f3</a>, <a href="https://github.com/dwrensha/capnproto-rust/commit/77dc713b8486bf61fe657cb82f5d6cb351e76306">77dc713b</a>, <a href="https://github.com/dwrensha/capnproto-rust/commit/10f37267e3c94d861e946f91dada61fa4dc085ee">10f37267</a>, <a href="https://github.com/dwrensha/capnproto-rust/commit/3521d4e25877d038154350d9ea5621779724ca5c">3521d4e2</a>)</h4>
+<h4 id="panics-on-todos-fixed-in-4c8d5f3-77dc713b-10f37267-3521d4e2">Panics on TODOs (fixed in <a href="https://github.com/dwrensha/capnproto-rust/commit/4c8d5f369335dc6deef6f9d1e818da5d47e2a36d">4c8d5f3</a>, <a href="https://github.com/dwrensha/capnproto-rust/commit/77dc713b8486bf61fe657cb82f5d6cb351e76306">77dc713b</a>, <a href="https://github.com/dwrensha/capnproto-rust/commit/10f37267e3c94d861e946f91dada61fa4dc085ee">10f37267</a>, <a href="https://github.com/dwrensha/capnproto-rust/commit/3521d4e25877d038154350d9ea5621779724ca5c">3521d4e2</a>)</h4>
 
 <p>The fuzzer managed to find some explicit panics in capnproto-rust
 that were filling in holes of unimplemented functionality.

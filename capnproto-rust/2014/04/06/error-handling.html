@@ -97,7 +97,7 @@ the purpose of having no decode step.</p>
 <p>At first glance, it may seem that Rust is being
 overly restrictive here. What would be so bad
 about letting us recover
-some of our data after a <code class="highlighter-rouge">fail!()</code>?
+some of our data after a <code class="language-plaintext highlighter-rouge">fail!()</code>?
 The problem
 is that it’s difficult
 to know statically <em>which</em>
@@ -117,9 +117,9 @@ permissive policy that demands care from the programmer.</p>
 <p>A perhaps more idiomatic way to structure the Rust implementation would be
 to have
 any possibly-failing read operation explicitly return
-a <code class="highlighter-rouge">Result&lt;T,DecodeError&gt;</code>.
+a <code class="language-plaintext highlighter-rouge">Result&lt;T,DecodeError&gt;</code>.
 You could then wrap all read operations in a
-<code class="highlighter-rouge">DecodeResult&lt;T&gt;</code> monad, much like the <code class="highlighter-rouge">IoResult&lt;T&gt;</code> monad.
+<code class="language-plaintext highlighter-rouge">DecodeResult&lt;T&gt;</code> monad, much like the <code class="language-plaintext highlighter-rouge">IoResult&lt;T&gt;</code> monad.
 This is the first thing I tried. It works, but it feels too heavyweight.</p>
 
 <p>Instead, I think the best solution for the Rust implementation
@@ -141,21 +141,21 @@ that would, as before, trigger task failure on malformed
 input. If all messages are from trusted sources, this may be
 a sensible option.</p>
 
-<h4 id="update-7-april-2014-a-nameupdatea">update (7 April 2014) <a name="update"></a></h4>
+<h4 id="update-7-april-2014-">update (7 April 2014) <a name="update"></a></h4>
 
 <p>Based on some feedback
 from <a href="http://www.reddit.com/r/rust/comments/22d36q/error_handling_in_capnprotorust/">r/rust</a>,
 I’ve implemented a new plan.
 Now a malformed message <em>does</em> cause task failure by default.
 For cases where that behavior is unacceptable,
-you can set the <code class="highlighter-rouge">fail_fast</code> field of <code class="highlighter-rouge">ReaderOptions</code> to false,
+you can set the <code class="language-plaintext highlighter-rouge">fail_fast</code> field of <code class="language-plaintext highlighter-rouge">ReaderOptions</code> to false,
 on a message-by-message basis. Doing so will
 enable the default-value fall-back described above.</p>
 
-<h4 id="update-21-march-2015-a-nameupdate2a">update (21 March 2015) <a name="update2"></a></h4>
+<h4 id="update-21-march-2015-">update (21 March 2015) <a name="update2"></a></h4>
 
 <p><a href="/capnproto-rust/2015/03/21/error-handling-revisited.html">New post</a>.
-I’ve switched to explicit <code class="highlighter-rouge">Result</code>-based error handling.</p>
+I’ve switched to explicit <code class="language-plaintext highlighter-rouge">Result</code>-based error handling.</p>
 
 
 <p class="author">

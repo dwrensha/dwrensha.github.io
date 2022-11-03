@@ -39,11 +39,11 @@ RPC method that makes a bunch of other RPC calls
 and then collects their results
 before returning.
 How should these actions compose?
-In the new version of <code class="highlighter-rouge">capnp-rpc</code>,
-which uses GJ’s <a href="https://docs.rs/gj/0.2.0/gj/struct.Promise.html"><code class="highlighter-rouge">Promise</code></a> abstraction,
+In the new version of <code class="language-plaintext highlighter-rouge">capnp-rpc</code>,
+which uses GJ’s <a href="https://docs.rs/gj/0.2.0/gj/struct.Promise.html"><code class="language-plaintext highlighter-rouge">Promise</code></a> abstraction,
 each of the inner method calls
 returns a promise,
-and those promises can be collected with <code class="highlighter-rouge">Promise::all()</code>
+and those promises can be collected with <code class="language-plaintext highlighter-rouge">Promise::all()</code>
 to form a new promise which can then be returned from the outer method.</p>
 
 <p>To see more concretely what this kind of thing looks like,
@@ -57,53 +57,53 @@ and a <a href="https://github.com/dwrensha/acronymy">word game</a>.</p>
 
 <h3 id="error-handling">error handling</h3>
 
-<p>A <code class="highlighter-rouge">Promise&lt;T, E&gt;</code> is essentially a deferred <code class="highlighter-rouge">Result&lt;T, E&gt;</code>,
+<p>A <code class="language-plaintext highlighter-rouge">Promise&lt;T, E&gt;</code> is essentially a deferred <code class="language-plaintext highlighter-rouge">Result&lt;T, E&gt;</code>,
 so it should be no surprise that
 today’s release pertains to
 our <a href="/capnproto-rust/2014/04/06/error-handling.html">continuing</a>
 <a href="/capnproto-rust/2015/03/21/error-handling-revisited.html">story</a>
 about error handling.</p>
 
-<p>Last time, we described our switch to using <code class="highlighter-rouge">Result&lt;T,E&gt;</code> pervasively,
-so that we could return an <code class="highlighter-rouge">Err(e)</code> on a decode error,
+<p>Last time, we described our switch to using <code class="language-plaintext highlighter-rouge">Result&lt;T,E&gt;</code> pervasively,
+so that we could return an <code class="language-plaintext highlighter-rouge">Err(e)</code> on a decode error,
 rather than panicking.
 That switch had some costs:</p>
 
 <ol>
-  <li>We now need to sprinkle <code class="highlighter-rouge">try!()</code>s in our code, one for any time we dereference a Cap’n Proto pointer.</li>
-  <li>We also need to edit some return types from <code class="highlighter-rouge">T</code> to <code class="highlighter-rouge">Result&lt;T, E&gt;</code>,
-and in some cases need to define helper functions so that <code class="highlighter-rouge">try!()</code> has a place to return to.</li>
+  <li>We now need to sprinkle <code class="language-plaintext highlighter-rouge">try!()</code>s in our code, one for any time we dereference a Cap’n Proto pointer.</li>
+  <li>We also need to edit some return types from <code class="language-plaintext highlighter-rouge">T</code> to <code class="language-plaintext highlighter-rouge">Result&lt;T, E&gt;</code>,
+and in some cases need to define helper functions so that <code class="language-plaintext highlighter-rouge">try!()</code> has a place to return to.</li>
 </ol>
 
 <p>In my opinion, (1) is not so bad, and it has the advantage of making control flow more clear.
-The <a href="https://github.com/rust-lang/rfcs/pull/243">proposed <code class="highlighter-rouge">?</code> operator</a>
+The <a href="https://github.com/rust-lang/rfcs/pull/243">proposed <code class="language-plaintext highlighter-rouge">?</code> operator</a>
 would make this even nicer.</p>
 
 <p>In the asynchronous world of Cap’n Proto RPC,
 (2) becomes less of a hassle, because
 most functions that need to read a Cap’n Proto message
-are asynchronous, and therefore already return a <code class="highlighter-rouge">Promise&lt;T, E&gt;</code>.
-In such cases, we can use the <a href="https://docs.rs/gj/0.2.0/gj/macro.pry!.html"><code class="highlighter-rouge">pry!()</code></a>
-macro that GJ defines. The <code class="highlighter-rouge">pry!()</code> macro acts like <code class="highlighter-rouge">try!()</code>, but in the early return case returns
-<code class="highlighter-rouge">Promise::err(e)</code> rather than <code class="highlighter-rouge">Result::Err(e)</code>.</p>
+are asynchronous, and therefore already return a <code class="language-plaintext highlighter-rouge">Promise&lt;T, E&gt;</code>.
+In such cases, we can use the <a href="https://docs.rs/gj/0.2.0/gj/macro.pry!.html"><code class="language-plaintext highlighter-rouge">pry!()</code></a>
+macro that GJ defines. The <code class="language-plaintext highlighter-rouge">pry!()</code> macro acts like <code class="language-plaintext highlighter-rouge">try!()</code>, but in the early return case returns
+<code class="language-plaintext highlighter-rouge">Promise::err(e)</code> rather than <code class="language-plaintext highlighter-rouge">Result::Err(e)</code>.</p>
 
 <h3 id="a-simpler-error-type">a simpler error type</h3>
 
-<p>One error-related question that often arises when designing interfaces that use <code class="highlighter-rouge">Promise&lt;T,E&gt;</code> is:
-what concrete error type should be plugged in for <code class="highlighter-rouge">E</code>?</p>
+<p>One error-related question that often arises when designing interfaces that use <code class="language-plaintext highlighter-rouge">Promise&lt;T,E&gt;</code> is:
+what concrete error type should be plugged in for <code class="language-plaintext highlighter-rouge">E</code>?</p>
 
-<p>In previous versions of capnproto-rust, I had defined an error enum <code class="highlighter-rouge">capnp::Error</code>
-with various cases, one of which wrapped a <code class="highlighter-rouge">std::io::Error</code>.
+<p>In previous versions of capnproto-rust, I had defined an error enum <code class="language-plaintext highlighter-rouge">capnp::Error</code>
+with various cases, one of which wrapped a <code class="language-plaintext highlighter-rouge">std::io::Error</code>.
 This got me into trouble when I wanted to start using
-<a href="https://docs.rs/gj/0.2.0/gj/struct.Promise.html#method.fork"><code class="highlighter-rouge">Promise::fork()</code></a>,
-which requires that <code class="highlighter-rouge">E</code> be <a href="https://doc.rust-lang.org/stable/std/clone/trait.Clone.html"><code class="highlighter-rouge">Clone</code></a>.
-The problem is that <code class="highlighter-rouge">std::io::Error</code> is not <code class="highlighter-rouge">Clone</code>!</p>
+<a href="https://docs.rs/gj/0.2.0/gj/struct.Promise.html#method.fork"><code class="language-plaintext highlighter-rouge">Promise::fork()</code></a>,
+which requires that <code class="language-plaintext highlighter-rouge">E</code> be <a href="https://doc.rust-lang.org/stable/std/clone/trait.Clone.html"><code class="language-plaintext highlighter-rouge">Clone</code></a>.
+The problem is that <code class="language-plaintext highlighter-rouge">std::io::Error</code> is not <code class="language-plaintext highlighter-rouge">Clone</code>!</p>
 
-<p>To address this problem, I have redefined <code class="highlighter-rouge">::capnp::Error</code> to follow the design of
+<p>To address this problem, I have redefined <code class="language-plaintext highlighter-rouge">::capnp::Error</code> to follow the design of
 <a href="https://github.com/sandstorm-io/capnproto/blob/master/c%2B%2B/src/kj/exception.h">kj::Exception</a>.
-It’s now a very simple struct with a <code class="highlighter-rouge">String</code> description and an <code class="highlighter-rouge">ErrorKind</code> enum,
+It’s now a very simple struct with a <code class="language-plaintext highlighter-rouge">String</code> description and an <code class="language-plaintext highlighter-rouge">ErrorKind</code> enum,
 where the only variants of
-<code class="highlighter-rouge">ErrorKind</code> are <code class="highlighter-rouge">Failed</code>, <code class="highlighter-rouge">Disconnected</code>, <code class="highlighter-rouge">Overloaded</code>, and <code class="highlighter-rouge">Unimplemented</code>.
+<code class="language-plaintext highlighter-rouge">ErrorKind</code> are <code class="language-plaintext highlighter-rouge">Failed</code>, <code class="language-plaintext highlighter-rouge">Disconnected</code>, <code class="language-plaintext highlighter-rouge">Overloaded</code>, and <code class="language-plaintext highlighter-rouge">Unimplemented</code>.
 The observation here is that there seems to be very little gained by
 defining hierarchies of errors wrapping other errors.</p>
 

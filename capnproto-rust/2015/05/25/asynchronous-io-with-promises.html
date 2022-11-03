@@ -39,7 +39,7 @@ As I’ve maintained capnp-rpc-rust over the past year,
 its need for a different approach to concurrency
 has become increasingly apparent.</p>
 
-<h2 id="introducing-gjhttpsgithubcomdwrenshagj">Introducing <a href="https://github.com/dwrensha/gj">GJ</a></h2>
+<h2 id="introducing-gj">Introducing <a href="https://github.com/dwrensha/gj">GJ</a></h2>
 
 <p><a href="https://github.com/dwrensha/gj">GJ</a> is a new Rust library that provides
 abstractions for event-loop concurrency and asynchronous I/O,
@@ -57,31 +57,31 @@ and a
 <a href="https://github.com/sandstorm-io/sandstorm/blob/3a3e93eb142969125aa8573df4edc6c62efbeebe/src/sandstorm/fuse.c++">Cap’n Proto driver</a>
 to a FUSE filesystem.</p>
 
-<p>The core abstraction in GJ is the <code class="highlighter-rouge">Promise&lt;T&gt;</code>, representing
-a computation that may eventually resolve to a value of type <code class="highlighter-rouge">T</code>.
+<p>The core abstraction in GJ is the <code class="language-plaintext highlighter-rouge">Promise&lt;T&gt;</code>, representing
+a computation that may eventually resolve to a value of type <code class="language-plaintext highlighter-rouge">T</code>.
 Instead of blocking, any non-immediate operation in GJ
 returns a promise that gets fulfilled upon the operation’s completion.
-To use a promise, you register a callback with the <code class="highlighter-rouge">then()</code> method.
+To use a promise, you register a callback with the <code class="language-plaintext highlighter-rouge">then()</code> method.
 For example:</p>
 
 <figure class="highlight"><pre><code class="language-rust" data-lang="rust"><span class="k">pub</span> <span class="k">fn</span> <span class="nf">connect_then_write</span><span class="p">(</span><span class="n">addr</span><span class="p">:</span> <span class="nn">gj</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">NetworkAddress</span><span class="p">)</span>
                          <span class="k">-&gt;</span> <span class="nn">gj</span><span class="p">::</span><span class="n">Promise</span><span class="o">&lt;</span><span class="p">()</span><span class="o">&gt;</span>
 <span class="p">{</span>
     <span class="k">return</span> <span class="n">addr</span><span class="nf">.connect</span><span class="p">()</span><span class="nf">.then</span><span class="p">(|</span><span class="n">stream</span><span class="p">|</span> <span class="p">{</span>
-       <span class="c">// The connection has succeeded. Let's write some data.</span>
+       <span class="c1">// The connection has succeeded. Let's write some data.</span>
        <span class="k">return</span> <span class="nf">Ok</span><span class="p">(</span><span class="n">stream</span><span class="nf">.write</span><span class="p">(</span><span class="nd">vec!</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">]));</span>
     <span class="p">})</span><span class="nf">.then</span><span class="p">(|(</span><span class="n">stream</span><span class="p">,</span> <span class="n">_</span><span class="p">)|</span> <span class="p">{</span>
-       <span class="c">// The first write has succeeded. Let's write some more.</span>
+       <span class="c1">// The first write has succeeded. Let's write some more.</span>
        <span class="k">return</span> <span class="nf">Ok</span><span class="p">(</span><span class="n">stream</span><span class="nf">.write</span><span class="p">(</span><span class="nd">vec!</span><span class="p">[</span><span class="mi">4</span><span class="p">,</span><span class="mi">5</span><span class="p">,</span><span class="mi">6</span><span class="p">]));</span>
     <span class="p">})</span><span class="nf">.then</span><span class="p">(|(</span><span class="n">stream</span><span class="p">,</span> <span class="n">_</span><span class="p">)|</span> <span class="p">{</span>
-       <span class="c">// The second write has succeeded. Let's just return;</span>
+       <span class="c1">// The second write has succeeded. Let's just return;</span>
        <span class="k">return</span> <span class="nf">Ok</span><span class="p">(</span><span class="nn">gj</span><span class="p">::</span><span class="nn">Promise</span><span class="p">::</span><span class="nf">fulfilled</span><span class="p">(()));</span>
     <span class="p">});</span>
 <span class="p">}</span></code></pre></figure>
 
-<p>Callbacks registered with <code class="highlighter-rouge">then()</code> never move between threads, so they do
+<p>Callbacks registered with <code class="language-plaintext highlighter-rouge">then()</code> never move between threads, so they do
 not need to be thread-safe.
-In Rust jargon, the callbacks are <code class="highlighter-rouge">FnOnce</code> closures that need not be <code class="highlighter-rouge">Send</code>.
+In Rust jargon, the callbacks are <code class="language-plaintext highlighter-rouge">FnOnce</code> closures that need not be <code class="language-plaintext highlighter-rouge">Send</code>.
 This means that you can share mutable data between them
 without any need for mutexes or atomics. For example, to share a counter,
 you could do this:</p>
@@ -122,7 +122,7 @@ to GJ’s
 <a href="https://github.com/dwrensha/gj/blob/8156f3cc89af96024e1bc0001481b11e40bef0f5/src/io.rs#L55">AsyncWrite</a>.</li>
   <li>The excellent <a href="https://github.com/carllerche/mio">mio</a> library allows us to not worry
 about system-specific APIs. It provides a uniform abstraction on top of
-<code class="highlighter-rouge">epoll</code> on Linux and <code class="highlighter-rouge">kqueue</code> on OSX, and maybe someday even <code class="highlighter-rouge">IOCP</code> in Windows.</li>
+<code class="language-plaintext highlighter-rouge">epoll</code> on Linux and <code class="language-plaintext highlighter-rouge">kqueue</code> on OSX, and maybe someday even <code class="language-plaintext highlighter-rouge">IOCP</code> in Windows.</li>
 </ol>
 
 <p>Although basics of GJ are operational today,

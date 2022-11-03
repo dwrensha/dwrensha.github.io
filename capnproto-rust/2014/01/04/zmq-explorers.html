@@ -42,7 +42,7 @@ moved by ZeroMQ — no copying or parsing is necessary.</p>
 <p>Concretely, the observations of the explorers
 are color values from an image:</p>
 
-<div class="highlighter-rouge"><pre class="highlight"><code>struct Observation {
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>struct Observation {
     timestamp  @0 : Int64;
     x          @1 : Float32;
     y          @2 : Float32;
@@ -54,8 +54,7 @@ are color values from an image:</p>
        warning @7 : Text;
     }
 }
-</code></pre>
-</div>
+</code></pre></div></div>
 
 <p>Each explorer randomly moves within the two-dimensional space
 of the image, reporting the colors it observes,
@@ -63,7 +62,7 @@ fudged by some noise.</p>
 
 <p>The collector maintains a grid that aggregates the reported observations:</p>
 
-<div class="highlighter-rouge"><pre class="highlight"><code>struct Grid {
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>struct Grid {
    cells @0 : List(List(Cell));
    numberOfUpdates @1 : UInt32;
    latestTimestamp @2 : Int64;
@@ -76,8 +75,7 @@ fudged by some noise.</p>
       meanBlue        @4 : Float32;
    }
 }
-</code></pre>
-</div>
+</code></pre></div></div>
 
 <p>The collector sends its current grid to the viewer whenever
 it is requested.</p>
@@ -92,8 +90,8 @@ it is requested.</p>
 <p>The image on left shows the current best estimate of the
 data. The image on the right shows
 a crude measure of confidence in the estimate;
-green represents the value of the <code class="highlighter-rouge">numberOfUpdates</code> field,
-and blue represents the value of the <code class="highlighter-rouge">latestTimestamp</code> field
+green represents the value of the <code class="language-plaintext highlighter-rouge">numberOfUpdates</code> field,
+and blue represents the value of the <code class="language-plaintext highlighter-rouge">latestTimestamp</code> field
 relative to the current time.</p>
 
 

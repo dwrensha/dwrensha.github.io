@@ -30,40 +30,40 @@ for aligned memory.</p>
 mechanism, whereby a crate can declare parts of its functionality to be optional, with enablement or disablement
 happening at compile time.</p>
 
-<p>As of version 0.12, the <code class="highlighter-rouge">capnp</code> crate has a new
-<a href="https://github.com/capnproto/capnproto-rust/blob/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/capnp/Cargo.toml#L30-L32">feature flag called <code class="highlighter-rouge">unaligned</code></a>.
-When <code class="highlighter-rouge">unaligned</code> is enabled, <code class="highlighter-rouge">capnp</code> makes no assumptions about the alignment of its data.
+<p>As of version 0.12, the <code class="language-plaintext highlighter-rouge">capnp</code> crate has a new
+<a href="https://github.com/capnproto/capnproto-rust/blob/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/capnp/Cargo.toml#L30-L32">feature flag called <code class="language-plaintext highlighter-rouge">unaligned</code></a>.
+When <code class="language-plaintext highlighter-rouge">unaligned</code> is enabled, <code class="language-plaintext highlighter-rouge">capnp</code> makes no assumptions about the alignment of its data.
 In particular, it can read a message in place from any array of bytes via
-<a href="https://github.com/capnproto/capnproto-rust/blob/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/capnp/src/serialize.rs#L57-L65"><code class="highlighter-rouge">read_message_from_flat_slice()</code></a>.</p>
+<a href="https://github.com/capnproto/capnproto-rust/blob/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/capnp/src/serialize.rs#L57-L65"><code class="language-plaintext highlighter-rouge">read_message_from_flat_slice()</code></a>.</p>
 
-<p>On the flip side, when <code class="highlighter-rouge">unaligned</code> is <em>not</em> enabled, <code class="highlighter-rouge">capnp</code> requires that message segments are 8-byte aligned,
+<p>On the flip side, when <code class="language-plaintext highlighter-rouge">unaligned</code> is <em>not</em> enabled, <code class="language-plaintext highlighter-rouge">capnp</code> requires that message segments are 8-byte aligned,
 <a href="https://github.com/capnproto/capnproto-rust/blob/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/capnp/src/private/arena.rs#L92-L100">returning an error</a>
 if it detects that’s not the case.
 The 8-byte alignment is then used whenever
-<code class="highlighter-rouge">capnp</code> loads or stores a primitive value in a message.</p>
+<code class="language-plaintext highlighter-rouge">capnp</code> loads or stores a primitive value in a message.</p>
 
-<p>With the new interface, there is no longer a need for the problematic <code class="highlighter-rouge">unsafe fn Word::bytes_to_words()</code>,
+<p>With the new interface, there is no longer a need for the problematic <code class="language-plaintext highlighter-rouge">unsafe fn Word::bytes_to_words()</code>,
 so that method no longer exists.</p>
 
 <h2 id="performance">Performance</h2>
 
-<p>The downside of enabling the <code class="highlighter-rouge">unaligned</code> feature is that some operations require
+<p>The downside of enabling the <code class="language-plaintext highlighter-rouge">unaligned</code> feature is that some operations require
 more instructions on certain compilation targets.
 To better understand the performance cost,
 I ran capnproto-rust’s
 <a href="https://github.com/capnproto/capnproto-rust/tree/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/benchmark">benchmark suite</a>
 on three different computers: my laptop (x86_64), an EC2 ARM64 instance (aarch64), and a Raspberry Pi Zero (armv6).
-I compared three different capnproto-rust versions: 0.11, 0.12, and 0.12 with <code class="highlighter-rouge">unaligned</code>.</p>
+I compared three different capnproto-rust versions: 0.11, 0.12, and 0.12 with <code class="language-plaintext highlighter-rouge">unaligned</code>.</p>
 
 <p>As expected, on all of the computers
-the 0.12 version without the <code class="highlighter-rouge">unaligned</code> feature performed about the same version 0.11
+the 0.12 version without the <code class="language-plaintext highlighter-rouge">unaligned</code> feature performed about the same version 0.11
 (within measurement noise).
-When I enabled the <code class="highlighter-rouge">unaligned</code> feature, the only computer where there
+When I enabled the <code class="language-plaintext highlighter-rouge">unaligned</code> feature, the only computer where there
 was a noticeable performance impact was the Raspberry Pi,
 where the benchmarks slowed down between 10 and 20 percent.
 This also was within my expectations, though I had been hoping
 it would be lower. (If the performance impact had been negligible,
-I would likely not have bothered to make <code class="highlighter-rouge">unaligned</code> an optional feature; instead
+I would likely not have bothered to make <code class="language-plaintext highlighter-rouge">unaligned</code> an optional feature; instead
 I would have made it the <em>only</em> supported mode.)</p>
 
 <h2 id="validation">Validation</h2>
@@ -76,10 +76,9 @@ that specifically force 1-byte alignment.</p>
 
 <p>I was pleasantly surprised to learn how easy it is to run miri these days:</p>
 
-<div class="highlighter-rouge"><pre class="highlight"><code>$ rustup component add miri
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>$ rustup component add miri
 $ cargo miri test
-</code></pre>
-</div>
+</code></pre></div></div>
 
 <p>I recommend that you try this on your own projects!</p>
 

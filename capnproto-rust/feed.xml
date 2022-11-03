@@ -1,45 +1,271 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
         <channel>
-                <title>Cap&#39;n Proto for Rust</title>
+                <title>Cap&apos;n Proto for Rust</title>
                 <description>updates on capnproto-rust</description>
-                <link>http://dwrensha.github.io/capnproto-rust</link>
-                <atom:link href="http://dwrensha.github.io/capnproto-rust/feed.xml" rel="self" type="application/rss+xml" />
+                <link>http://localhost:4000</link>
+                <atom:link href="http://localhost:4000/feed.xml" rel="self" type="application/rss+xml" />
+                
+                        <item>
+                                <title>0.15 -- GATs, CapabilityServerSet, and async packing</title>
+                                <description>&lt;p&gt;Today I am releasing version 0.15.0 of the Cap’n Proto crates:
+&lt;a href=&quot;https://crates.io/crates/capnp&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp&lt;/code&gt;&lt;/a&gt;,
+&lt;a href=&quot;https://crates.io/crates/capnpc&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnpc&lt;/code&gt;&lt;/a&gt;,
+&lt;a href=&quot;https://crates.io/crates/capnp-futures&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp-futures&lt;/code&gt;&lt;/a&gt;,
+and &lt;a href=&quot;https://crates.io/crates/capnp-rpc&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp-rpc&lt;/code&gt;&lt;/a&gt;.
+It’s been a while – almost two years since the
+&lt;a href=&quot;/capnproto-rust/2020/12/19/atomic-read-limiting.html&quot;&gt;0.14.0 release&lt;/a&gt;!
+So what’s new?&lt;/p&gt;
+
+&lt;h2 id=&quot;generic-associated-types&quot;&gt;Generic Associated Types&lt;/h2&gt;
+
+&lt;p&gt;Say we have a Cap’n Proto &lt;a href=&quot;https://capnproto.org/language.html&quot;&gt;schema&lt;/a&gt;
+that defines a struct type &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Foo&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;struct Foo {
+  id @0 :UInt64;
+  payload @1 :Data;
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;When we pass this to the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnpc-rust&lt;/code&gt; code generator, it
+gives us declarations for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;foo::Reader&amp;lt;&apos;a&amp;gt;&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;foo::Builder&amp;lt;&apos;b&amp;gt;&lt;/code&gt; types.
+These types act as
+“&lt;a href=&quot;/capnproto-rust/2014/12/27/custom-mutable-references.html&quot;&gt;synthetic references&lt;/a&gt;”,
+allowing us to
+read a capnp-encoded &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Foo&lt;/code&gt; value directly from a byte buffer without
+copying it into an intermediate structure.
+The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;foo::Reader&amp;lt;&apos;a&amp;gt;&lt;/code&gt; type acts like an immutable (shared) reference &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;&apos;a Foo&lt;/code&gt;,
+and the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;foo::Builder&amp;lt;&apos;a&amp;gt;&lt;/code&gt; type acts like a mutable reference &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;&apos;a mut Foo&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;Very well, but what if we now want to define
+a generic container type for a Cap’n Proto message,
+whose contents can be borrowed either immutably or mutably?
+Something like:&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;struct&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;MessageContainer&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;where&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;???&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;message&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;capnp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;message&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Builder&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;capnp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;message&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;HeapAllocator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;marker&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;  &lt;span class=&quot;nn&quot;&gt;core&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;marker&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;PhantomData&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+
+&lt;span class=&quot;k&quot;&gt;impl&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;MessageContainer&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;where&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;???&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;get&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;???&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;get_mut&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;???&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;We want to be able to plug &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Foo&lt;/code&gt; (or any other Cap’n Proto struct type)
+in for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;T&lt;/code&gt; here. How do we fill in the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;???&lt;/code&gt; to make this work?&lt;/p&gt;
+
+&lt;p&gt;The key is that, in addition to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;foo::Reader&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;foo::Builder&lt;/code&gt;,
+the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnpc-rust&lt;/code&gt; code generator also generates
+a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;foo::Owned&lt;/code&gt; type, meant as a stand in for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Foo&lt;/code&gt; itself
+(which cannot be directly represented in Rust).
+The type &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;foo::Owned&lt;/code&gt; has the following impl:&lt;/p&gt;
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;impl&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;capnp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;traits&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;Owned&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;foo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;Owned&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;type&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Reader&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;foo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Reader&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;type&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Builder&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;foo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Builder&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;p&gt;where &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp::traits::Owned&lt;/code&gt; is defined as&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;trait&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;Owned&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;type&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Reader&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;FromPointerReader&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;SetPointerBuilder&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;type&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Builder&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;FromPointerBuilder&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Then we can fill in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;MessageContainer&lt;/code&gt; as follows:&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;struct&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;MessageContainer&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;where&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;capnp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;traits&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;Owned&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;message&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;capnp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;message&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Builder&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;capnp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;message&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;HeapAllocator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;marker&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;  &lt;span class=&quot;nn&quot;&gt;core&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;marker&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;PhantomData&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+
+&lt;span class=&quot;k&quot;&gt;impl&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;MessageContainer&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;where&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;capnp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;traits&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;Owned&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;get&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Reader&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;_&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;get_mut&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Builder&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;_&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Notice that the lifetime parameters on &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Owned::Reader&lt;/code&gt;
+and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Owned::Builder&lt;/code&gt; make them
+&lt;a href=&quot;https://blog.rust-lang.org/2022/10/28/gats-stabilization.html&quot;&gt;generic associated types&lt;/a&gt;,
+a newly stablized feature of Rust.&lt;/p&gt;
+
+&lt;h3 id=&quot;how-it-worked-before-gat&quot;&gt;How it worked before GAT&lt;/h3&gt;
+
+&lt;p&gt;In previous versions of capnproto-rust,
+we needed to hoist the lifetime parameter &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;lt;&apos;a&amp;gt;&lt;/code&gt; to the top
+of the declaration of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp::traits::Owned&lt;/code&gt;, like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;trait&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;Owned&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;type&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Reader&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;FromPointerReader&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;SetPointerBuilder&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;type&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Builder&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;FromPointerBuilder&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Then, usages of the trait often needed higher rank trait bounds (i.e. &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;for&amp;lt;&apos;a&amp;gt;...&lt;/code&gt;),
+like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;struct&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;MessageContainer&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;where&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;capnp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;traits&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;Owned&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;message&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;capnp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;message&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Builder&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;capnp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;message&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;HeapAllocator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;marker&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt;  &lt;span class=&quot;nn&quot;&gt;core&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;marker&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;PhantomData&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;for&amp;lt;&apos;a&amp;gt;&lt;/code&gt; syntax makes this trait look more complicated than it actually is,
+so it’s good that we are finally able to remove it!&lt;/p&gt;
+
+&lt;h2 id=&quot;capabilityserverset&quot;&gt;CapabilityServerSet&lt;/h2&gt;
+
+&lt;p&gt;Consider the following (over)simplified version of
+Sandstorm’s &lt;a href=&quot;https://github.com/sandstorm-io/sandstorm/blob/d8be67ad5f703bb73f5da4e607cce07106c2a0f1/src/sandstorm/web-publishing.capnp#L24-L98&quot;&gt;web publishing interface&lt;/a&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;interface BlobHandle {}
+
+interface BlobWriter {
+  write @0 (chunk: Data);
+  done @1 () -&amp;gt; (handle :BlobHandle);
+}
+
+interface WebSitePublisher {
+  createBlob @0 () -&amp;gt; (writer :BlobWriter);
+  set @1 (path :Text, blob :BlobHandle);
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;To add some piece of content to a web site, an consumer of this API would do the following:&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;Call &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;createBlob()&lt;/code&gt;.&lt;/li&gt;
+  &lt;li&gt;Write to the blob using &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BlobWriter.write()&lt;/code&gt;.&lt;/li&gt;
+  &lt;li&gt;Call &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BlobWriter.done()&lt;/code&gt; to get a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BlobHandle&lt;/code&gt;.&lt;/li&gt;
+  &lt;li&gt;Pass the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BlobHandle&lt;/code&gt; to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;WebSitePublisher.set()&lt;/code&gt; for each path that should serve the content.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;This flow allows uploads to be streamed (step 2),
+and it allows a single piece of content to be pushed to multiple paths
+(step 4) without duplicated work.&lt;/p&gt;
+
+&lt;p&gt;But how is the server supposed to implement &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;WebSitePublisher.set()&lt;/code&gt;?
+The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BlobHandle&lt;/code&gt; that it receives does not have any methods,
+so how can anything meaningful be done with it?&lt;/p&gt;
+
+&lt;p&gt;Let’s first translate the question into Rust code.
+The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnpc-rust&lt;/code&gt;-generated code for the above schema will contain
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Client&lt;/code&gt; structs &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;blob_handle::Client&lt;/code&gt;, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;blob_writer::Client&lt;/code&gt;,
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;web_site_publisher::Client&lt;/code&gt;, and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Server&lt;/code&gt; traits
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;blob_handle::Server&lt;/code&gt;, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;blob_writer::Server&lt;/code&gt;, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;web_site_publisher::Server&lt;/code&gt;.
+The idea is that the server will implement the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Server&lt;/code&gt; traits,
+with structs named perhaps &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BlobHandleImpl&lt;/code&gt;, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BlobWriterImpl&lt;/code&gt;,
+and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;WebSitePublisherImpl&lt;/code&gt;, and then will pass these
+structs to RPC system via the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp_rpc::new_client()&lt;/code&gt; function.
+For example, to create a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BlobHandle&lt;/code&gt;, the implementation
+of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;blob_writer::Server::done()&lt;/code&gt; might do:&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;blob_handle&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;BlobHandleImpl&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;blob_bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;client&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;blob_handle&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Client&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;capnp_rpc&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;new_client&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;blob_handle&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;The issue is that once we call &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp_rpc::new_client()&lt;/code&gt; we no longer have
+access to the underlying &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BlobHandleImpl&lt;/code&gt; object,
+so by the time we are in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;web_site_publisher::Server::set()&lt;/code&gt;, we cannot
+get to the blob’s bytes.&lt;/p&gt;
+
+&lt;p&gt;The solution is to use &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;CapabilityServerSet&lt;/code&gt;,
+a feature that has existed in capnproto-c++
+for a long time, and as of today has been added to capnproto-rust.
+If a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;blob_handle::Client&lt;/code&gt; is created via &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;CapabilityServerSet::new_client()&lt;/code&gt;,
+instead of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp_rpc::new_client()&lt;/code&gt;,
+then its underlying &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;BlobHandleImpl&lt;/code&gt; can later be retrieved
+via &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;CapabilityServerSet::get_local_server()&lt;/code&gt;.&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;set&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;CapabilityServerSet&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;BlobHandleImpl&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;blob_handle&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Client&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;
+    &lt;span class=&quot;nn&quot;&gt;CapabilityServerSet&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;...&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;blob_handle&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;BlobHandleImpl&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;blob_bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;client&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;blob_handle&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Client&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;set&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.new_client&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;blob_handle&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Then the implementation of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;web_site_publisher::Server&lt;/code&gt; could do:&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;Some&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;s&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;set&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.get_local_client&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;client&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;.await&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;c1&quot;&gt;// s has type `&amp;amp;Rc&amp;lt;RefCell&amp;lt;BlobHandleImpl&amp;gt;&amp;gt;`&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h2 id=&quot;async-packing&quot;&gt;Async Packing&lt;/h2&gt;
+
+&lt;p&gt;Cap’n Proto’s
+&lt;a href=&quot;https://capnproto.org/encoding.html#packing&quot;&gt;packed codec&lt;/a&gt;
+is a way to reduce message size in exchange for
+a minimal encoding/decoding cost.&lt;/p&gt;
+
+&lt;p&gt;Until recently, capnproto-rust only support the packed codec
+via the synchronous &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp::serialize_packed&lt;/code&gt; API; if you
+wanted to pack your data over async I/O, you were out of luck.
+In particular, there was no way to use the RPC system with the packed codec.&lt;/p&gt;
+
+&lt;p&gt;That has changed now, with
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/pull/296&quot;&gt;the addition&lt;/a&gt;
+of the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp_futures::serialize_packed&lt;/code&gt; module.
+It includes standalone functions
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;serialize_packed::try_read_message()&lt;/code&gt; and
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;serialize_packed::write_message()&lt;/code&gt;, as well
+as wrappers&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;struct&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;PackedRead&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;R&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;where&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;R&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;AsyncRead&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;p&gt;and&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;struct&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;PackedWrite&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;W&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;where&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;W&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;AsyncWrite&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;p&gt;which can be plugged into &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp_rpc::twoparty::VatNetwork::new()&lt;/code&gt;
+to enable packed RPC.&lt;/p&gt;
+
+</description>
+                                <pubDate>Thu, 03 Nov 2022 00:00:00 -0400</pubDate>
+                                <link>http://localhost:4000/2022/11/03/0.15-release.html</link>
+                                <guid isPermaLink="true">http://localhost:4000/2022/11/03/0.15-release.html</guid>
+                        </item>
                 
                         <item>
                                 <title>atomic read limiting</title>
                                 <description>&lt;p&gt;Today I’m releasing capnproto-rust version 0.14.
 The main change is a new
-&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/c9b12bc765d5cc4e711890b97f065b855516ba71/capnp/Cargo.toml#L40-L43&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;sync_reader&lt;/code&gt;&lt;/a&gt;
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/c9b12bc765d5cc4e711890b97f065b855516ba71/capnp/Cargo.toml#L40-L43&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sync_reader&lt;/code&gt;&lt;/a&gt;
 feature that allows messages to be shared between multiple threads.
-With the new feature, you can, for example, wrap a &lt;code class=&quot;highlighter-rouge&quot;&gt;capnp::message::Reader&lt;/code&gt;
-with &lt;a href=&quot;https://crates.io/crates/lazy_static&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;lazy_static&lt;/code&gt;&lt;/a&gt; or
-&lt;a href=&quot;https://crates.io/crates/once_cell&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;once_cell&lt;/code&gt;&lt;/a&gt; and then read it from anywhere else
+With the new feature, you can, for example, wrap a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp::message::Reader&lt;/code&gt;
+with &lt;a href=&quot;https://crates.io/crates/lazy_static&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;lazy_static&lt;/code&gt;&lt;/a&gt; or
+&lt;a href=&quot;https://crates.io/crates/once_cell&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;once_cell&lt;/code&gt;&lt;/a&gt; and then read it from anywhere else
 in your program.
 Previously, doing so was not possible because the
 &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/c9b12bc765d5cc4e711890b97f065b855516ba71/capnp/src/message.rs#L38-L55&quot;&gt;message traversal limit&lt;/a&gt;
-was tracked through a &lt;code class=&quot;highlighter-rouge&quot;&gt;Cell&lt;/code&gt;, causing &lt;code class=&quot;highlighter-rouge&quot;&gt;message::Reader&lt;/code&gt; to not be
-&lt;a href=&quot;https://doc.rust-lang.org/std/marker/trait.Sync.html&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;Sync&lt;/code&gt;&lt;/a&gt;.
-Now, when &lt;code class=&quot;highlighter-rouge&quot;&gt;sync_reader&lt;/code&gt; is enabled, the traversal limit
-is tracked through an &lt;code class=&quot;highlighter-rouge&quot;&gt;AtomicUsize&lt;/code&gt;, which can be safely
+was tracked through a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Cell&lt;/code&gt;, causing &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;message::Reader&lt;/code&gt; to not be
+&lt;a href=&quot;https://doc.rust-lang.org/std/marker/trait.Sync.html&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Sync&lt;/code&gt;&lt;/a&gt;.
+Now, when &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sync_reader&lt;/code&gt; is enabled, the traversal limit
+is tracked through an &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AtomicUsize&lt;/code&gt;, which can be safely
 shared between threads.&lt;/p&gt;
 
 &lt;p&gt;To minimize the performance impact, the new implementation uses
-&lt;code class=&quot;highlighter-rouge&quot;&gt;Ordering::Relaxed&lt;/code&gt; when accessing the atomic counter.
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Ordering::Relaxed&lt;/code&gt; when accessing the atomic counter.
 When I measured the performance on a few benchmarks,
 I was initially discouraged because
-&lt;a href=&quot;https://doc.rust-lang.org/std/sync/atomic/struct.AtomicUsize.html#method.fetch_sub&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;fetch_sub()&lt;/code&gt;&lt;/a&gt;
+&lt;a href=&quot;https://doc.rust-lang.org/std/sync/atomic/struct.AtomicUsize.html#method.fetch_sub&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fetch_sub()&lt;/code&gt;&lt;/a&gt;
 seemed to be slowing things down significantly.
-Fortunately, I found that splitting &lt;code class=&quot;highlighter-rouge&quot;&gt;fetch_sub()&lt;/code&gt; into separate &lt;code class=&quot;highlighter-rouge&quot;&gt;load()&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;store()&lt;/code&gt;
+Fortunately, I found that splitting &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fetch_sub()&lt;/code&gt; into separate &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;load()&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;store()&lt;/code&gt;
 steps recovered the lost time.
 (Such a split may cause the read limiter to undercount reads,
 but we are okay with that level of imprecision.)
 With the &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/c9b12bc765d5cc4e711890b97f065b855516ba71/capnp/src/private/read_limiter.rs#L54-L71&quot;&gt;most recent version&lt;/a&gt;,
 I am unable to detect any speed difference between the new atomic implementation
-and the old &lt;code class=&quot;highlighter-rouge&quot;&gt;Cell&lt;/code&gt;-based one.&lt;/p&gt;
+and the old &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Cell&lt;/code&gt;-based one.&lt;/p&gt;
 
 &lt;p&gt;I would have liked to unconditionally enable atomic read limiting,
-but unfortunately &lt;code class=&quot;highlighter-rouge&quot;&gt;AtomicUsize&lt;/code&gt; is not available on all platforms.
+but unfortunately &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AtomicUsize&lt;/code&gt; is not available on all platforms.
 For example, rustc
 does not support any atomics on
 &lt;a href=&quot;https://github.com/rust-lang/rust/blob/1b6b06a03a00a7c9f156bff130b72e90b79e1127/compiler/rustc_target/src/spec/riscv32i_unknown_none_elf.rs#L15&quot;&gt;riscv32i-unknown-none-elf&lt;/a&gt;.
@@ -52,8 +278,8 @@ with this change and
 for patiently iterating on it with me.&lt;/p&gt;
 </description>
                                 <pubDate>Sat, 19 Dec 2020 00:00:00 -0500</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2020/12/19/atomic-read-limiting.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2020/12/19/atomic-read-limiting.html</guid>
+                                <link>http://localhost:4000/2020/12/19/atomic-read-limiting.html</link>
+                                <guid isPermaLink="true">http://localhost:4000/2020/12/19/atomic-read-limiting.html</guid>
                         </item>
                 
                         <item>
@@ -64,58 +290,56 @@ in using capnproto-rust in &lt;a href=&quot;https://rust-embedded.github.io/book
 – that is, without pulling in the Rust standard library.
 Today I’m happy to announce that the latest release, version 0.13.0, supports that.&lt;/p&gt;
 
-&lt;p&gt;To use a &lt;code class=&quot;highlighter-rouge&quot;&gt;no_std&lt;/code&gt; capnproto-rust,
-update your &lt;code class=&quot;highlighter-rouge&quot;&gt;Cargo.toml&lt;/code&gt; to the new &lt;code class=&quot;highlighter-rouge&quot;&gt;capnp&lt;/code&gt; version and disable default features, like this:&lt;/p&gt;
+&lt;p&gt;To use a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;no_std&lt;/code&gt; capnproto-rust,
+update your &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Cargo.toml&lt;/code&gt; to the new &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp&lt;/code&gt; version and disable default features, like this:&lt;/p&gt;
 
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nn&quot;&gt;[capnp.dependencies]&lt;/span&gt;
+&lt;div class=&quot;language-toml highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nn&quot;&gt;[capnp.dependencies]&lt;/span&gt;
 &lt;span class=&quot;py&quot;&gt;version&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;0.13&quot;&lt;/span&gt;
 &lt;span class=&quot;py&quot;&gt;default-features&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;kc&quot;&gt;false&lt;/span&gt;
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
 
 &lt;p&gt;This turns off the new
 &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/e2836823318d95668f10443d9f2feea8378ae95f/capnp/Cargo.toml#L36-L38&quot;&gt;“std” feature flag&lt;/a&gt;
-in the &lt;code class=&quot;highlighter-rouge&quot;&gt;capnp&lt;/code&gt; crate.
+in the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp&lt;/code&gt; crate.
 In turn, that feature controls a
-&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/e2836823318d95668f10443d9f2feea8378ae95f/capnp/src/lib.rs#L30&quot;&gt;crate-level &lt;code class=&quot;highlighter-rouge&quot;&gt;no_std&lt;/code&gt; attribute&lt;/a&gt;
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/e2836823318d95668f10443d9f2feea8378ae95f/capnp/src/lib.rs#L30&quot;&gt;crate-level &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;no_std&lt;/code&gt; attribute&lt;/a&gt;
 and gates the parts of the crate that depend on the standard library.&lt;/p&gt;
 
 &lt;h2 id=&quot;example&quot;&gt;Example&lt;/h2&gt;
 
-&lt;p&gt;To see &lt;code class=&quot;highlighter-rouge&quot;&gt;no_std&lt;/code&gt; capnproto-rust in action,
+&lt;p&gt;To see &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;no_std&lt;/code&gt; capnproto-rust in action,
 check out this &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/tree/master/example/wasm-hello-world&quot;&gt;new example&lt;/a&gt;
 that passes data to a WebAssembly function through a Cap’n Proto message.
 I observed the size of this example’s generated wasm code to shrink from
-1.6MB down to 660KB when I added &lt;code class=&quot;highlighter-rouge&quot;&gt;#![no_std]&lt;/code&gt;.&lt;/p&gt;
+1.6MB down to 660KB when I added &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;#![no_std]&lt;/code&gt;.&lt;/p&gt;
 
 &lt;h2 id=&quot;io-traits&quot;&gt;I/O traits&lt;/h2&gt;
 
-&lt;p&gt;The biggest challenge in getting capnproto-rust to work with &lt;code class=&quot;highlighter-rouge&quot;&gt;no_std&lt;/code&gt; was dealing with
+&lt;p&gt;The biggest challenge in getting capnproto-rust to work with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;no_std&lt;/code&gt; was dealing with
 input/output traits.
 In previous releases, capnproto-rust defined its main serialization functions in terms of
-&lt;code class=&quot;highlighter-rouge&quot;&gt;std::io::Read&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;std::io::Write&lt;/code&gt;. That would be a problem in a &lt;code class=&quot;highlighter-rouge&quot;&gt;no_std&lt;/code&gt; context,
-because those traits are &lt;a href=&quot;https://github.com/rust-lang/rust/issues/48331&quot;&gt;stuck in &lt;code class=&quot;highlighter-rouge&quot;&gt;std&lt;/code&gt;&lt;/a&gt;.&lt;/p&gt;
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;std::io::Read&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;std::io::Write&lt;/code&gt;. That would be a problem in a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;no_std&lt;/code&gt; context,
+because those traits are &lt;a href=&quot;https://github.com/rust-lang/rust/issues/48331&quot;&gt;stuck in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;std&lt;/code&gt;&lt;/a&gt;.&lt;/p&gt;
 
 &lt;p&gt;The solution I settled on was to define custom
-&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/e2836823318d95668f10443d9f2feea8378ae95f/capnp/src/io.rs#L9&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;capnp::io::Read&lt;/code&gt;&lt;/a&gt;
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/e2836823318d95668f10443d9f2feea8378ae95f/capnp/src/io.rs#L9&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp::io::Read&lt;/code&gt;&lt;/a&gt;
 and
-&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/e2836823318d95668f10443d9f2feea8378ae95f/capnp/src/io.rs#L44&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;capnp::io::Write&lt;/code&gt;&lt;/a&gt;
-traits, and then to define the &lt;code class=&quot;highlighter-rouge&quot;&gt;capnp&lt;/code&gt; serialization functions in terms of those.&lt;/p&gt;
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/e2836823318d95668f10443d9f2feea8378ae95f/capnp/src/io.rs#L44&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp::io::Write&lt;/code&gt;&lt;/a&gt;
+traits, and then to define the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp&lt;/code&gt; serialization functions in terms of those.&lt;/p&gt;
 
 &lt;p&gt;Blanket impls like the following then allow existing call sites to
 continue to work without being altered:&lt;/p&gt;
 
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;err&quot;&gt;#&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;cfg&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;feature&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;std&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)]&lt;/span&gt;
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nd&quot;&gt;#[cfg(feature=&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;std&quot;&lt;/span&gt;&lt;span class=&quot;nd&quot;&gt;)]&lt;/span&gt;
 &lt;span class=&quot;k&quot;&gt;mod&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;std_impls&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;impl&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;R&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;std&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;io&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Read&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;crate&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;io&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Read&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;R&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;err&quot;&gt;...&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;impl&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;R&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;std&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;io&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Read&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;crate&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;io&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Read&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;R&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt;
   &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-  &lt;span class=&quot;k&quot;&gt;impl&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;W&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;std&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;io&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Write&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;crate&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;io&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Write&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;W&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;err&quot;&gt;...&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;impl&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;W&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;std&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;io&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Write&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;crate&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;io&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Write&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;W&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt;
   &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
 &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
 
 &lt;h2 id=&quot;why-now&quot;&gt;Why now?&lt;/h2&gt;
 
@@ -123,12 +347,12 @@ continue to work without being altered:&lt;/p&gt;
 
 &lt;ol&gt;
   &lt;li&gt;The &lt;a href=&quot;https://github.com/rust-lang/rust/pull/59675&quot;&gt;stabilization of the alloc crate&lt;/a&gt;
-means that collections like &lt;code class=&quot;highlighter-rouge&quot;&gt;Vec&lt;/code&gt; are now usable with &lt;code class=&quot;highlighter-rouge&quot;&gt;no_std&lt;/code&gt;. (capnproto-rust strives
+means that collections like &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Vec&lt;/code&gt; are now usable with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;no_std&lt;/code&gt;. (capnproto-rust strives
 to minimize allocations, but still relies on the global allocator for some things like
 messages with a dynamic number of segments.)&lt;/li&gt;
   &lt;li&gt;&lt;a href=&quot;https://github.com/rust-lang/rust/pull/69033&quot;&gt;no_std support for async/await&lt;/a&gt; means that
-we can use &lt;code class=&quot;highlighter-rouge&quot;&gt;async&lt;/code&gt; blocks wherever we want. Previously, we would have needed to define
-some custom &lt;code class=&quot;highlighter-rouge&quot;&gt;Future&lt;/code&gt; implementations to avoid putting an &lt;code class=&quot;highlighter-rouge&quot;&gt;async&lt;/code&gt; block in the &lt;code class=&quot;highlighter-rouge&quot;&gt;capnp&lt;/code&gt; crate.&lt;/li&gt;
+we can use &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;async&lt;/code&gt; blocks wherever we want. Previously, we would have needed to define
+some custom &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Future&lt;/code&gt; implementations to avoid putting an &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;async&lt;/code&gt; block in the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp&lt;/code&gt; crate.&lt;/li&gt;
 &lt;/ol&gt;
 
 &lt;h2 id=&quot;thanks&quot;&gt;Thanks&lt;/h2&gt;
@@ -141,8 +365,8 @@ for submitting diffs that explored the
 design space.&lt;/p&gt;
 </description>
                                 <pubDate>Sat, 06 Jun 2020 00:00:00 -0400</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2020/06/06/no-std-support.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2020/06/06/no-std-support.html</guid>
+                                <link>http://localhost:4000/2020/06/06/no-std-support.html</link>
+                                <guid isPermaLink="true">http://localhost:4000/2020/06/06/no-std-support.html</guid>
                         </item>
                 
                         <item>
@@ -165,40 +389,40 @@ for aligned memory.&lt;/p&gt;
 mechanism, whereby a crate can declare parts of its functionality to be optional, with enablement or disablement
 happening at compile time.&lt;/p&gt;
 
-&lt;p&gt;As of version 0.12, the &lt;code class=&quot;highlighter-rouge&quot;&gt;capnp&lt;/code&gt; crate has a new
-&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/capnp/Cargo.toml#L30-L32&quot;&gt;feature flag called &lt;code class=&quot;highlighter-rouge&quot;&gt;unaligned&lt;/code&gt;&lt;/a&gt;.
-When &lt;code class=&quot;highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; is enabled, &lt;code class=&quot;highlighter-rouge&quot;&gt;capnp&lt;/code&gt; makes no assumptions about the alignment of its data.
+&lt;p&gt;As of version 0.12, the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp&lt;/code&gt; crate has a new
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/capnp/Cargo.toml#L30-L32&quot;&gt;feature flag called &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;unaligned&lt;/code&gt;&lt;/a&gt;.
+When &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; is enabled, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp&lt;/code&gt; makes no assumptions about the alignment of its data.
 In particular, it can read a message in place from any array of bytes via
-&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/capnp/src/serialize.rs#L57-L65&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;read_message_from_flat_slice()&lt;/code&gt;&lt;/a&gt;.&lt;/p&gt;
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/capnp/src/serialize.rs#L57-L65&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;read_message_from_flat_slice()&lt;/code&gt;&lt;/a&gt;.&lt;/p&gt;
 
-&lt;p&gt;On the flip side, when &lt;code class=&quot;highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; is &lt;em&gt;not&lt;/em&gt; enabled, &lt;code class=&quot;highlighter-rouge&quot;&gt;capnp&lt;/code&gt; requires that message segments are 8-byte aligned,
+&lt;p&gt;On the flip side, when &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; is &lt;em&gt;not&lt;/em&gt; enabled, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp&lt;/code&gt; requires that message segments are 8-byte aligned,
 &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/capnp/src/private/arena.rs#L92-L100&quot;&gt;returning an error&lt;/a&gt;
 if it detects that’s not the case.
 The 8-byte alignment is then used whenever
-&lt;code class=&quot;highlighter-rouge&quot;&gt;capnp&lt;/code&gt; loads or stores a primitive value in a message.&lt;/p&gt;
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp&lt;/code&gt; loads or stores a primitive value in a message.&lt;/p&gt;
 
-&lt;p&gt;With the new interface, there is no longer a need for the problematic &lt;code class=&quot;highlighter-rouge&quot;&gt;unsafe fn Word::bytes_to_words()&lt;/code&gt;,
+&lt;p&gt;With the new interface, there is no longer a need for the problematic &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;unsafe fn Word::bytes_to_words()&lt;/code&gt;,
 so that method no longer exists.&lt;/p&gt;
 
 &lt;h2 id=&quot;performance&quot;&gt;Performance&lt;/h2&gt;
 
-&lt;p&gt;The downside of enabling the &lt;code class=&quot;highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; feature is that some operations require
+&lt;p&gt;The downside of enabling the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; feature is that some operations require
 more instructions on certain compilation targets.
 To better understand the performance cost,
 I ran capnproto-rust’s
 &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/tree/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/benchmark&quot;&gt;benchmark suite&lt;/a&gt;
 on three different computers: my laptop (x86_64), an EC2 ARM64 instance (aarch64), and a Raspberry Pi Zero (armv6).
-I compared three different capnproto-rust versions: 0.11, 0.12, and 0.12 with &lt;code class=&quot;highlighter-rouge&quot;&gt;unaligned&lt;/code&gt;.&lt;/p&gt;
+I compared three different capnproto-rust versions: 0.11, 0.12, and 0.12 with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;unaligned&lt;/code&gt;.&lt;/p&gt;
 
 &lt;p&gt;As expected, on all of the computers
-the 0.12 version without the &lt;code class=&quot;highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; feature performed about the same version 0.11
+the 0.12 version without the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; feature performed about the same version 0.11
 (within measurement noise).
-When I enabled the &lt;code class=&quot;highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; feature, the only computer where there
+When I enabled the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; feature, the only computer where there
 was a noticeable performance impact was the Raspberry Pi,
 where the benchmarks slowed down between 10 and 20 percent.
 This also was within my expectations, though I had been hoping
 it would be lower. (If the performance impact had been negligible,
-I would likely not have bothered to make &lt;code class=&quot;highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; an optional feature; instead
+I would likely not have bothered to make &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; an optional feature; instead
 I would have made it the &lt;em&gt;only&lt;/em&gt; supported mode.)&lt;/p&gt;
 
 &lt;h2 id=&quot;validation&quot;&gt;Validation&lt;/h2&gt;
@@ -211,17 +435,16 @@ that specifically force 1-byte alignment.&lt;/p&gt;
 
 &lt;p&gt;I was pleasantly surprised to learn how easy it is to run miri these days:&lt;/p&gt;
 
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;$ rustup component add miri
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;$ rustup component add miri
 $ cargo miri test
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
 
 &lt;p&gt;I recommend that you try this on your own projects!&lt;/p&gt;
 
 </description>
                                 <pubDate>Sun, 19 Jan 2020 00:00:00 -0500</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2020/01/19/new-feature-to-allow-unaligned-buffers.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2020/01/19/new-feature-to-allow-unaligned-buffers.html</guid>
+                                <link>http://localhost:4000/2020/01/19/new-feature-to-allow-unaligned-buffers.html</link>
+                                <guid isPermaLink="true">http://localhost:4000/2020/01/19/new-feature-to-allow-unaligned-buffers.html</guid>
                         </item>
                 
                         <item>
@@ -230,12 +453,12 @@ $ cargo miri test
 read messages directly from memory without copying the data into auxiliary structures.
 Unfortunately, this functionality is a bit tricky to use correctly,
 as can be seen in its primary interface, the
-&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/d1988731887b2bbb0ccb35c68b9292d98f317a48/capnp/src/serialize.rs#L76-L81&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;read_message_from_words()&lt;/code&gt;&lt;/a&gt;
-function, whose input is of type &lt;code class=&quot;highlighter-rouge&quot;&gt;&amp;amp;[Word]&lt;/code&gt;.
-In the common case where you want to read from a &lt;code class=&quot;highlighter-rouge&quot;&gt;&amp;amp;[u8]&lt;/code&gt;,
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/d1988731887b2bbb0ccb35c68b9292d98f317a48/capnp/src/serialize.rs#L76-L81&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;read_message_from_words()&lt;/code&gt;&lt;/a&gt;
+function, whose input is of type &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;[Word]&lt;/code&gt;.
+In the common case where you want to read from a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;[u8]&lt;/code&gt;,
 you must first call the unsafe function
-&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/d1988731887b2bbb0ccb35c68b9292d98f317a48/capnp/src/lib.rs#L82-L88&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;bytes_to_words()&lt;/code&gt;&lt;/a&gt;
-in order to get a &lt;code class=&quot;highlighter-rouge&quot;&gt;&amp;amp;[Word]&lt;/code&gt;.
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/d1988731887b2bbb0ccb35c68b9292d98f317a48/capnp/src/lib.rs#L82-L88&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;bytes_to_words()&lt;/code&gt;&lt;/a&gt;
+in order to get a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;[Word]&lt;/code&gt;.
 It is only safe to call this function if you know that your data is
 8-byte aligned &lt;strike&gt;or if you know that your code will only run on processors
 that permit unaligned memory access&lt;/strike&gt; (EDIT: ralfj &lt;a href=&quot;https://www.reddit.com/r/rust/comments/en9fmn/should_capnprotorust_force_users_to_worry_about/fedhjtk/&quot;&gt;informs me&lt;/a&gt; that misaligned loads are never okay.)
@@ -243,10 +466,10 @@ The former condition can be difficult to meet, especially if your memory comes f
 an external library like sqlite or zmq where no alignment guarantees are given&lt;strike&gt;,
 and the latter condition feels like an unfair burden, both in terms of demanding that
 you understand a rather subtle concept, and in terms of limiting where your software can run&lt;/strike&gt;.
-So it’s easy to  understand why someone might shy away from calling &lt;code class=&quot;highlighter-rouge&quot;&gt;bytes_to_words()&lt;/code&gt;
-and, in turn, &lt;code class=&quot;highlighter-rouge&quot;&gt;read_message_from_words()&lt;/code&gt;.&lt;/p&gt;
+So it’s easy to  understand why someone might shy away from calling &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;bytes_to_words()&lt;/code&gt;
+and, in turn, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;read_message_from_words()&lt;/code&gt;.&lt;/p&gt;
 
-&lt;p&gt;Can we do better? Ideally, capnproto-rust would safely operate directly on input of type &lt;code class=&quot;highlighter-rouge&quot;&gt;&amp;amp;[u8]&lt;/code&gt;.
+&lt;p&gt;Can we do better? Ideally, capnproto-rust would safely operate directly on input of type &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;[u8]&lt;/code&gt;.
 We can in fact adapt the code to do that, but it comes at a cost: processors that don’t natively
 support unaligned access will need to do some more work every time that capnproto-rust
 loads or stores a multi-byte value.
@@ -256,61 +479,57 @@ the assembly code emitted by rustc!
 but that’s a more involved project than I’d like to tackle right now.)&lt;/p&gt;
 
 &lt;p&gt;Below is some code representing a bare-bones simplification of the two approaches to memory access.
-(The &lt;code class=&quot;highlighter-rouge&quot;&gt;#[no_std]&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;#[no_mangle]&lt;/code&gt; attributes are to simpify the assembly code.)&lt;/p&gt;
+(The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;#[no_std]&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;#[no_mangle]&lt;/code&gt; attributes are to simpify the assembly code.)&lt;/p&gt;
 
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;err&quot;&gt;#&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;!&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;no_std&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nd&quot;&gt;#![no_std]&lt;/span&gt;
 
-&lt;span class=&quot;cp&quot;&gt;#[no_mangle]&lt;/span&gt;
+&lt;span class=&quot;nd&quot;&gt;#[no_mangle]&lt;/span&gt;
 &lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;unsafe&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;direct_load&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;])&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
     &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.as_ptr&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;as&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.to_le&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
 &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
 
-&lt;span class=&quot;cp&quot;&gt;#[no_mangle]&lt;/span&gt;
+&lt;span class=&quot;nd&quot;&gt;#[no_mangle]&lt;/span&gt;
 &lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;indirect_load&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;])&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
     &lt;span class=&quot;nn&quot;&gt;u64&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;from_le_bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
 &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
 
-&lt;p&gt;The &lt;code class=&quot;highlighter-rouge&quot;&gt;direct_load()&lt;/code&gt; function represents the current state of affairs in capnproto-rust.
-It loads a &lt;code class=&quot;highlighter-rouge&quot;&gt;u64&lt;/code&gt; by casting a pointer of type &lt;code class=&quot;highlighter-rouge&quot;&gt;*const u8&lt;/code&gt; to type &lt;code class=&quot;highlighter-rouge&quot;&gt;*const u64&lt;/code&gt; and then deferencing that pointer.
+&lt;p&gt;The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;direct_load()&lt;/code&gt; function represents the current state of affairs in capnproto-rust.
+It loads a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;u64&lt;/code&gt; by casting a pointer of type &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;*const u8&lt;/code&gt; to type &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;*const u64&lt;/code&gt; and then deferencing that pointer.
 This is only safe if the input is 8-byte aligned &lt;strike&gt;or if the processor can handle unaligned access&lt;/strike&gt;.
 (EDIT: again, see ralfj’s &lt;a href=&quot;https://www.reddit.com/r/rust/comments/en9fmn/should_capnprotorust_force_users_to_worry_about/fedhjtk/&quot;&gt;reddit comment&lt;/a&gt;.)&lt;/p&gt;
 
-&lt;p&gt;The &lt;code class=&quot;highlighter-rouge&quot;&gt;indirect_load()&lt;/code&gt; function represents the safer alternative. We expect this to
-sometimes require more work than &lt;code class=&quot;highlighter-rouge&quot;&gt;direct_load()&lt;/code&gt;, but it has the advantage of
+&lt;p&gt;The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;indirect_load()&lt;/code&gt; function represents the safer alternative. We expect this to
+sometimes require more work than &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;direct_load()&lt;/code&gt;, but it has the advantage of
 being easier to use and understand.&lt;/p&gt;
 
 &lt;p&gt;To compare the assembly code generated by these functions, I installed
-a variety of rustc targets using &lt;code class=&quot;highlighter-rouge&quot;&gt;rustup&lt;/code&gt;:&lt;/p&gt;
+a variety of rustc targets using &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;rustup&lt;/code&gt;:&lt;/p&gt;
 
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;rustup target add $TARGET
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;rustup target add $TARGET
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
 
 &lt;p&gt;and then for each target compiled the code with:&lt;/p&gt;
 
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;rustc -O --crate-type=lib test.rs --target=$TARGET --emit=asm
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;rustc -O --crate-type=lib test.rs --target=$TARGET --emit=asm
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
 
 &lt;p&gt;The results, edited to only include the relevant bits of code, are show below.&lt;/p&gt;
 
-&lt;h2 id=&quot;x8664-unknown-linux-gnu&quot;&gt;x86_64-unknown-linux-gnu&lt;/h2&gt;
+&lt;h2 id=&quot;x86_64-unknown-linux-gnu&quot;&gt;x86_64-unknown-linux-gnu&lt;/h2&gt;
 
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
 	movq	(%rdi), %rax
 	retq
 
 indirect_load:
 	movq	(%rdi), %rax
 	retq
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
 
 &lt;h2 id=&quot;i686-unknown-linux-gnu&quot;&gt;i686-unknown-linux-gnu&lt;/h2&gt;
 
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
 	movl	4(%esp), %ecx
 	movl	(%ecx), %eax
 	movl	4(%ecx), %edx
@@ -321,36 +540,33 @@ indirect_load:
 	movl	(%ecx), %eax
 	movl	4(%ecx), %edx
 	retl
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
 
 &lt;h2 id=&quot;aarch64-unknown-linux-gnu&quot;&gt;aarch64-unknown-linux-gnu&lt;/h2&gt;
 
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
 	ldr	x0, [x0]
 	ret
 
 indirect_load:
 	ldr	x0, [x0]
 	ret
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
 
 &lt;h2 id=&quot;wasm32-wasi&quot;&gt;wasm32-wasi&lt;/h2&gt;
 
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
 	local.get	0
 	i64.load	0
 
 indirect_load:
 	local.get	0
 	i64.load	0:p2align=0
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
 
 &lt;h2 id=&quot;armv7-unknown-linux-gnueabi&quot;&gt;armv7-unknown-linux-gnueabi&lt;/h2&gt;
 
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
 	ldrd	r0, r1, [r0]
 	bx	lr
 
@@ -359,12 +575,11 @@ indirect_load:
 	ldr	r1, [r0, #4]
 	mov	r0, r2
 	bx	lr
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
 
 &lt;h2 id=&quot;powerpc-unknown-linux-gnu&quot;&gt;powerpc-unknown-linux-gnu&lt;/h2&gt;
 
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
 	li 4, 4
 	lwbrx 5, 3, 4
 	lwbrx 4, 0, 3
@@ -377,12 +592,11 @@ indirect_load:
 	lwbrx 4, 0, 3
 	mr 3, 5
 	blr
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
 
 &lt;h2 id=&quot;mips-unknown-linux-gnu&quot;&gt;mips-unknown-linux-gnu&lt;/h2&gt;
 
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
 	lw	$1, 4($4)
 	wsbh	$1, $1
 	rotr	$2, $1, 16
@@ -401,12 +615,11 @@ indirect_load:
 	wsbh	$1, $1
 	jr	$ra
 	rotr	$3, $1, 16
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
 
 &lt;h2 id=&quot;riscv32i-unknown-none-elf&quot;&gt;riscv32i-unknown-none-elf&lt;/h2&gt;
 
-&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
 	addi	sp, sp, -16
 	sw	ra, 12(sp)
 	sw	s0, 8(sp)
@@ -449,27 +662,26 @@ indirect_load:
 	lw	ra, 12(sp)
 	addi	sp, sp, 16
 	ret
-&lt;/code&gt;&lt;/pre&gt;
-&lt;/div&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
 
 &lt;h1 id=&quot;conclusions&quot;&gt;Conclusions&lt;/h1&gt;
 
-&lt;p&gt;As expected, &lt;code class=&quot;highlighter-rouge&quot;&gt;direct_load()&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;indirect_load()&lt;/code&gt; generate the same
+&lt;p&gt;As expected, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;direct_load()&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;indirect_load()&lt;/code&gt; generate the same
 assembly code for many targets. These are presumably exactly the targets that support
 unaligned memory access. On targets where different instructions were generated
-for the two functions, &lt;code class=&quot;highlighter-rouge&quot;&gt;indirect_load()&lt;/code&gt; typically requires somewhere between 2x and 3x the
-number of instructions of &lt;code class=&quot;highlighter-rouge&quot;&gt;direct_load()&lt;/code&gt;. Is that an acceptable cost? How much of an
+for the two functions, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;indirect_load()&lt;/code&gt; typically requires somewhere between 2x and 3x the
+number of instructions of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;direct_load()&lt;/code&gt;. Is that an acceptable cost? How much of an
 impact would it have in the context of a complete real-world program? I don’t know!
 I’m inclined to believe that the usability benefits of the
-&lt;code class=&quot;highlighter-rouge&quot;&gt;indirect_load()&lt;/code&gt; approach outweigh its performance
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;indirect_load()&lt;/code&gt; approach outweigh its performance
 cost, especially since that cost is probably zero or negligible on the most commonly used targets,
 but maybe that’s not true?
 I encourage any readers of this post who have thoughts on the matter to comment
 on this &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/issues/101&quot;&gt;github issue&lt;/a&gt;.&lt;/p&gt;
 </description>
                                 <pubDate>Sat, 11 Jan 2020 00:00:00 -0500</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2020/01/11/unaligned-memory-access.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2020/01/11/unaligned-memory-access.html</guid>
+                                <link>http://localhost:4000/2020/01/11/unaligned-memory-access.html</link>
+                                <guid isPermaLink="true">http://localhost:4000/2020/01/11/unaligned-memory-access.html</guid>
                         </item>
                 
                         <item>
@@ -479,29 +691,29 @@ with support for
 &lt;a href=&quot;https://blog.rust-lang.org/2019/11/07/Async-await-stable.html&quot;&gt;async/await&lt;/a&gt;!
 The updated RPC system works with any futures-0.3-enabled executor
 (e.g. tokio, async-std) – you just need to provide it
-with objects that implement the &lt;code class=&quot;highlighter-rouge&quot;&gt;futures::io::AsyncRead&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;futures::io::AsyncWrite&lt;/code&gt; traits.&lt;/p&gt;
+with objects that implement the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;futures::io::AsyncRead&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;futures::io::AsyncWrite&lt;/code&gt; traits.&lt;/p&gt;
 
-&lt;p&gt;The stabilization of &lt;code class=&quot;highlighter-rouge&quot;&gt;std::future::Future&lt;/code&gt; allowed me to eliminate
+&lt;p&gt;The stabilization of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;std::future::Future&lt;/code&gt; allowed me to eliminate
 an annoying
 &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/commit/0e825eecbf2337d1fb2caed015bfa4862a195d40#diff-c0b507abb73596f7f82a1c80ac680e54L31&quot;&gt;optional dependecy&lt;/a&gt;
 on futures-0.1
-in the base &lt;code class=&quot;highlighter-rouge&quot;&gt;capnp&lt;/code&gt; crate, and in general the update allowed me to
+in the base &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp&lt;/code&gt; crate, and in general the update allowed me to
 &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/commit/0e825eecbf2337d1fb2caed015bfa4862a195d40&quot;&gt;delete a lot of code&lt;/a&gt;.&lt;/p&gt;
 
 &lt;p&gt;In my experience, async/await can vastly simplify concurrent programming,
 especially in the case where you have a single-threaded event loop
 and you want to share mutable data among multiple tasks.&lt;/p&gt;
 
-&lt;p&gt;Probably the hardest part of this update was wrapping my head around &lt;code class=&quot;highlighter-rouge&quot;&gt;Pin&amp;lt;T&amp;gt;&lt;/code&gt;.
+&lt;p&gt;Probably the hardest part of this update was wrapping my head around &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Pin&amp;lt;T&amp;gt;&lt;/code&gt;.
 My biggest takeaway message on that topic is:
-if you get into trouble, try wrapping your object with &lt;code class=&quot;highlighter-rouge&quot;&gt;Box::pin()&lt;/code&gt;.
-Curiously, doing so will give you an object that is &lt;code class=&quot;highlighter-rouge&quot;&gt;Unpin&lt;/code&gt; – which is often
+if you get into trouble, try wrapping your object with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Box::pin()&lt;/code&gt;.
+Curiously, doing so will give you an object that is &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Unpin&lt;/code&gt; – which is often
 exactly what you need!&lt;/p&gt;
 
 </description>
                                 <pubDate>Fri, 06 Dec 2019 00:00:00 -0500</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2019/12/06/async-await.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2019/12/06/async-await.html</guid>
+                                <link>http://localhost:4000/2019/12/06/async-await.html</link>
+                                <guid isPermaLink="true">http://localhost:4000/2019/12/06/async-await.html</guid>
                         </item>
                 
                         <item>
@@ -518,12 +730,12 @@ Fortunately, cargo-fuzz is very simple and fast to get running.
 It quickly found several issues in capnproto-rust, all of which have been fixed
 in the &lt;a href=&quot;https://crates.io/crates/capnp&quot;&gt;latest release&lt;/a&gt;.&lt;/p&gt;
 
-&lt;h4 id=&quot;panic-on-invalid-input-fixed-in-6f9bbdcahttpsgithubcomdwrenshacapnproto-rustcommit6f9bbdca5f77146f6f1ff0297295c3fded3a01a6&quot;&gt;Panic on invalid input (fixed in &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/6f9bbdca5f77146f6f1ff0297295c3fded3a01a6&quot;&gt;6f9bbdca&lt;/a&gt;)&lt;/h4&gt;
+&lt;h4 id=&quot;panic-on-invalid-input-fixed-in-6f9bbdca&quot;&gt;Panic on invalid input (fixed in &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/6f9bbdca5f77146f6f1ff0297295c3fded3a01a6&quot;&gt;6f9bbdca&lt;/a&gt;)&lt;/h4&gt;
 
 &lt;p&gt;The original
 &lt;a href=&quot;https://github.com/sandstorm-io/capnproto/blob/01f6d5e4ff05fcd67e968b50120dba3fbbb38afb/c%2B%2B/src/capnp/layout.c%2B%2B#L1875&quot;&gt;C++ code&lt;/a&gt;
-suggests that the branches for dealing with &lt;code class=&quot;highlighter-rouge&quot;&gt;Far&lt;/code&gt; pointers in
-&lt;code class=&quot;highlighter-rouge&quot;&gt;total_size()&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;copy_pointer()&lt;/code&gt; are unreachable,
+suggests that the branches for dealing with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Far&lt;/code&gt; pointers in
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;total_size()&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;copy_pointer()&lt;/code&gt; are unreachable,
 so I had translated them into panics.
 It turns out that these branches can in fact be reached
 due to invalid input, rather than any bugs in the code.
@@ -532,9 +744,9 @@ misleading exception will be thrown;
 I’ve submitted &lt;a href=&quot;https://github.com/sandstorm-io/capnproto/pull/421&quot;&gt;a pull request&lt;/a&gt;
 to make the exception more accurate.
 The problem is more serious in the Rust version,
-because Rust makes a sharp distinction between panics and error &lt;code class=&quot;highlighter-rouge&quot;&gt;Result&lt;/code&gt;s.&lt;/p&gt;
+because Rust makes a sharp distinction between panics and error &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Result&lt;/code&gt;s.&lt;/p&gt;
 
-&lt;h4 id=&quot;cpu-amplifications-fixed-in-e89f162bhttpsgithubcomdwrenshacapnproto-rustcommite89f162b3545096aec77a62157463437d6959ac5-66def413httpsgithubcomdwrenshacapnproto-rustcommit66def4134e8b4fbc2459d77e72717e445175879c&quot;&gt;CPU amplifications (fixed in &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/e89f162b3545096aec77a62157463437d6959ac5&quot;&gt;e89f162b&lt;/a&gt;, &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/66def4134e8b4fbc2459d77e72717e445175879c&quot;&gt;66def413&lt;/a&gt;)&lt;/h4&gt;
+&lt;h4 id=&quot;cpu-amplifications-fixed-in-e89f162b-66def413&quot;&gt;CPU amplifications (fixed in &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/e89f162b3545096aec77a62157463437d6959ac5&quot;&gt;e89f162b&lt;/a&gt;, &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/66def4134e8b4fbc2459d77e72717e445175879c&quot;&gt;66def413&lt;/a&gt;)&lt;/h4&gt;
 
 &lt;p&gt;One way to attempt to mount a denial-of-service attack on a
 consumer of Cap’n Proto messages is to carefully craft messages
@@ -552,7 +764,7 @@ for capnproto-c++ in 2015.
 I thought that I had completely updated capnproto-rust with
 fixes for this problem, but apparently I had missed two cases. :-(&lt;/p&gt;
 
-&lt;h4 id=&quot;panics-on-todos-fixed-in-4c8d5f3httpsgithubcomdwrenshacapnproto-rustcommit4c8d5f369335dc6deef6f9d1e818da5d47e2a36d-77dc713bhttpsgithubcomdwrenshacapnproto-rustcommit77dc713b8486bf61fe657cb82f5d6cb351e76306-10f37267httpsgithubcomdwrenshacapnproto-rustcommit10f37267e3c94d861e946f91dada61fa4dc085ee-3521d4e2httpsgithubcomdwrenshacapnproto-rustcommit3521d4e25877d038154350d9ea5621779724ca5c&quot;&gt;Panics on TODOs (fixed in &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/4c8d5f369335dc6deef6f9d1e818da5d47e2a36d&quot;&gt;4c8d5f3&lt;/a&gt;, &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/77dc713b8486bf61fe657cb82f5d6cb351e76306&quot;&gt;77dc713b&lt;/a&gt;, &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/10f37267e3c94d861e946f91dada61fa4dc085ee&quot;&gt;10f37267&lt;/a&gt;, &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/3521d4e25877d038154350d9ea5621779724ca5c&quot;&gt;3521d4e2&lt;/a&gt;)&lt;/h4&gt;
+&lt;h4 id=&quot;panics-on-todos-fixed-in-4c8d5f3-77dc713b-10f37267-3521d4e2&quot;&gt;Panics on TODOs (fixed in &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/4c8d5f369335dc6deef6f9d1e818da5d47e2a36d&quot;&gt;4c8d5f3&lt;/a&gt;, &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/77dc713b8486bf61fe657cb82f5d6cb351e76306&quot;&gt;77dc713b&lt;/a&gt;, &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/10f37267e3c94d861e946f91dada61fa4dc085ee&quot;&gt;10f37267&lt;/a&gt;, &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/3521d4e25877d038154350d9ea5621779724ca5c&quot;&gt;3521d4e2&lt;/a&gt;)&lt;/h4&gt;
 
 &lt;p&gt;The fuzzer managed to find some explicit panics in capnproto-rust
 that were filling in holes of unimplemented functionality.
@@ -570,8 +782,8 @@ that I later added to the capnproto-rust test suite to cover the new functionali
 
 </description>
                                 <pubDate>Mon, 27 Feb 2017 00:00:00 -0500</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2017/02/27/cargo-fuzz.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2017/02/27/cargo-fuzz.html</guid>
+                                <link>http://localhost:4000/2017/02/27/cargo-fuzz.html</link>
+                                <guid isPermaLink="true">http://localhost:4000/2017/02/27/cargo-fuzz.html</guid>
                         </item>
                 
                         <item>
@@ -592,15 +804,15 @@ foundation for asynchronous programming in Rust.&lt;/p&gt;
 &lt;p&gt;At the level of types, the update is fairly
 straightforward.
 The main asynchronous building block in GJ is the struct
-&lt;code class=&quot;highlighter-rouge&quot;&gt;Promise&amp;lt;T, E&amp;gt;&lt;/code&gt;, representing a &lt;code class=&quot;highlighter-rouge&quot;&gt;Result&amp;lt;T, E&amp;gt;&lt;/code&gt; that might not
-be ready yet. To migrate to futures-rs, each &lt;code class=&quot;highlighter-rouge&quot;&gt;gj::Promise&amp;lt;T,E&amp;gt;&lt;/code&gt; can be translated into
-a &lt;code class=&quot;highlighter-rouge&quot;&gt;Box&amp;lt;futures::Future&amp;lt;Item=T,Error=E&amp;gt;&amp;gt;&lt;/code&gt;,
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Promise&amp;lt;T, E&amp;gt;&lt;/code&gt;, representing a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Result&amp;lt;T, E&amp;gt;&lt;/code&gt; that might not
+be ready yet. To migrate to futures-rs, each &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;gj::Promise&amp;lt;T,E&amp;gt;&lt;/code&gt; can be translated into
+a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Box&amp;lt;futures::Future&amp;lt;Item=T,Error=E&amp;gt;&amp;gt;&lt;/code&gt;,
 and the high-level structure of a program usually does not need to change.&lt;/p&gt;
 
-&lt;p&gt;Many nice properties derive from the fact that &lt;code class=&quot;highlighter-rouge&quot;&gt;Future&lt;/code&gt; is a &lt;em&gt;trait&lt;/em&gt;, not a struct,
-and does not need to be put in a &lt;code class=&quot;highlighter-rouge&quot;&gt;Box&lt;/code&gt;.
-Concrete types implementing &lt;code class=&quot;highlighter-rouge&quot;&gt;Future&lt;/code&gt; can be used in generics,
-making it possible for combinators like &lt;code class=&quot;highlighter-rouge&quot;&gt;.then()&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;.join()&lt;/code&gt;
+&lt;p&gt;Many nice properties derive from the fact that &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Future&lt;/code&gt; is a &lt;em&gt;trait&lt;/em&gt;, not a struct,
+and does not need to be put in a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Box&lt;/code&gt;.
+Concrete types implementing &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Future&lt;/code&gt; can be used in generics,
+making it possible for combinators like &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;.then()&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;.join()&lt;/code&gt;
 to avoid heap allocations
 and to avoid losing type information.
 In particular, the typechecker can know at compile time
@@ -614,7 +826,7 @@ For example, a Cap’n Proto method could invoke
 to distribute computation-heavy work among a pool of worker threads,
 or it could use one of the emerging asynchronous database drivers
 to make queries on a remote database, or it could do,
-well, anything that can be expressed in terms of the &lt;code class=&quot;highlighter-rouge&quot;&gt;Future&lt;/code&gt; trait.
+well, anything that can be expressed in terms of the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Future&lt;/code&gt; trait.
 As a quick demonstration, I have implemented a
 simple &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/tree/capnp-v0.8.17/capnp-rpc/examples/http-requests&quot;&gt;example&lt;/a&gt;
 that uses &lt;a href=&quot;https://github.com/tokio-rs/tokio-curl&quot;&gt;tokio-curl&lt;/a&gt;
@@ -627,8 +839,8 @@ Join me for discussion at #sandstorm on freenode IRC or at the
 
 </description>
                                 <pubDate>Wed, 04 Jan 2017 00:00:00 -0500</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2017/01/04/rpc-futures.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2017/01/04/rpc-futures.html</guid>
+                                <link>http://localhost:4000/2017/01/04/rpc-futures.html</link>
+                                <guid isPermaLink="true">http://localhost:4000/2017/01/04/rpc-futures.html</guid>
                         </item>
                 
                         <item>
@@ -663,20 +875,20 @@ We start with a trait definition (borrowed from eddyb’s comment in the above-l
 &lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;trait&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Generator&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
     &lt;span class=&quot;k&quot;&gt;type&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Value&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
     &lt;span class=&quot;k&quot;&gt;type&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Return&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Yield&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;Self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Value&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;Self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Return&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Yield&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;Self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Value&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;Self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Return&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
 &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
 
 &lt;p&gt;So a generator looks a lot like an iterator. You can ask it for the next value
-until you reach its end, signalled by &lt;code class=&quot;highlighter-rouge&quot;&gt;Return&lt;/code&gt;.
+until you reach its end, signalled by &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Return&lt;/code&gt;.
 The interesting part is that there is a special way to construct
-values that implement &lt;code class=&quot;highlighter-rouge&quot;&gt;Generator&lt;/code&gt;. For example:&lt;/p&gt;
+values that implement &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Generator&lt;/code&gt;. For example:&lt;/p&gt;
 
-&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;fib_with_sum&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;usize&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;lt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;fib_with_sum&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;usize&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;lt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
      &lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;a&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
      &lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;b&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
      &lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;sum&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-     &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;_&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;py&quot;&gt;.n&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-         &lt;span class=&quot;n&quot;&gt;yield&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;a&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;c&quot;&gt;// &amp;lt;--- new keyword &quot;yield&quot;&lt;/span&gt;
+     &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;_&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;..&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;n&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+         &lt;span class=&quot;k&quot;&gt;yield&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;a&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// &amp;lt;--- new keyword &quot;yield&quot;&lt;/span&gt;
          &lt;span class=&quot;n&quot;&gt;sum&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;a&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
          &lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;next&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;a&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;b&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
          &lt;span class=&quot;n&quot;&gt;a&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;b&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
@@ -685,36 +897,36 @@ values that implement &lt;code class=&quot;highlighter-rouge&quot;&gt;Generator&
      &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;sum&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
 &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
 
-&lt;p&gt;Here I’ve used some strawman syntax &lt;code class=&quot;highlighter-rouge&quot;&gt;fn foo() -&amp;lt;T&amp;gt;-&amp;gt; R&lt;/code&gt;, which denotes that &lt;code class=&quot;highlighter-rouge&quot;&gt;foo&lt;/code&gt;
-is a &lt;em&gt;generator function&lt;/em&gt; that produces some number of &lt;code class=&quot;highlighter-rouge&quot;&gt;T&lt;/code&gt; values
-and then finishes by producing an &lt;code class=&quot;highlighter-rouge&quot;&gt;R&lt;/code&gt;.
-The &lt;code class=&quot;highlighter-rouge&quot;&gt;yield&lt;/code&gt; keyword inside of a generator function means that a &lt;code class=&quot;highlighter-rouge&quot;&gt;Yield::Value()&lt;/code&gt; should be produced
+&lt;p&gt;Here I’ve used some strawman syntax &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fn foo() -&amp;lt;T&amp;gt;-&amp;gt; R&lt;/code&gt;, which denotes that &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;foo&lt;/code&gt;
+is a &lt;em&gt;generator function&lt;/em&gt; that produces some number of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;T&lt;/code&gt; values
+and then finishes by producing an &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;R&lt;/code&gt;.
+The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;yield&lt;/code&gt; keyword inside of a generator function means that a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Yield::Value()&lt;/code&gt; should be produced
 and the generator should be paused.
-When you call &lt;code class=&quot;highlighter-rouge&quot;&gt;fib_with_sum()&lt;/code&gt;, the value you get back is a generator,
-which can be used by calling &lt;code class=&quot;highlighter-rouge&quot;&gt;next()&lt;/code&gt;, like this:&lt;/p&gt;
+When you call &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fib_with_sum()&lt;/code&gt;, the value you get back is a generator,
+which can be used by calling &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;next()&lt;/code&gt;, like this:&lt;/p&gt;
 
 &lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;g&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;fib_with_sum&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;5&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c&quot;&gt;// Yield::Value(0)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c&quot;&gt;// Yield::Value(1)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c&quot;&gt;// Yield::Value(1)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c&quot;&gt;// Yield::Value(2)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c&quot;&gt;// Yield::Value(3)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c&quot;&gt;// Yield::Return(7)&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
+&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(0)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(1)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(1)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(2)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(3)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Return(7)&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
 
 &lt;p&gt;Another thing that we might want to do is to
 have one generator delegate to another generator.
-The &lt;code class=&quot;highlighter-rouge&quot;&gt;yield from&lt;/code&gt; construction allows that:&lt;/p&gt;
+The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;yield from&lt;/code&gt; construction allows that:&lt;/p&gt;
 
 &lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;sub_gen&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;lt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;bool&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;i&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;.&lt;/span&gt;&lt;span class=&quot;py&quot;&gt;.n&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-        &lt;span class=&quot;n&quot;&gt;yield&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;i&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;i&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;..&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;n&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;k&quot;&gt;yield&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;i&lt;/span&gt;
     &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
     &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
 &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
 
 &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;gen&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;lt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-   &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;j&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;..&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-       &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;yield&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;from&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;sub_gen&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;j&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+   &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;j&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;..&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+       &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;yield&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;from&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;sub_gen&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;j&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
            &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;j&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
        &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
@@ -723,55 +935,55 @@ The &lt;code class=&quot;highlighter-rouge&quot;&gt;yield from&lt;/code&gt; cons
 &lt;p&gt;Running this gives:&lt;/p&gt;
 
 &lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;g&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;gen&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c&quot;&gt;// Yield::Value(0)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c&quot;&gt;// Yield::Value(0)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c&quot;&gt;// Yield::Value(1)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c&quot;&gt;// Yield::Value(0)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c&quot;&gt;// Yield::Value(1)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c&quot;&gt;// Yield::Value(2)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c&quot;&gt;// Yield::Return(3)&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
+&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(0)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(0)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(1)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(0)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(1)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(2)&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Return(3)&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
 
 &lt;p&gt;Note that when the sub-generator is done,
-its return value gets plugged in at the &lt;code class=&quot;highlighter-rouge&quot;&gt;yield from&lt;/code&gt; expression of the
-calling generator. So &lt;code class=&quot;highlighter-rouge&quot;&gt;gen()&lt;/code&gt; continues until &lt;code class=&quot;highlighter-rouge&quot;&gt;j == 3&lt;/code&gt;.&lt;/p&gt;
+its return value gets plugged in at the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;yield from&lt;/code&gt; expression of the
+calling generator. So &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;gen()&lt;/code&gt; continues until &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;j == 3&lt;/code&gt;.&lt;/p&gt;
 
 &lt;h3 id=&quot;using-generators-for-async-io&quot;&gt;Using generators for async I/O&lt;/h3&gt;
 
 &lt;p&gt;Now for the punchline. Using generators, we can define
 asynchronous reader and writer traits like this:&lt;/p&gt;
 
-&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;std&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;io&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::{&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Error&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ErrorKind&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Result&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
+&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;std&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;io&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::{&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Error&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ErrorKind&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;Result&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
 
 &lt;span class=&quot;k&quot;&gt;enum&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;AsyncStatus&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
   &lt;span class=&quot;nf&quot;&gt;Fd&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;FileDescriptor&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt;
   &lt;span class=&quot;nf&quot;&gt;Timeout&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Time&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt;
-  &lt;span class=&quot;c&quot;&gt;//...&lt;/span&gt;
+  &lt;span class=&quot;c1&quot;&gt;//...&lt;/span&gt;
 &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
 
 &lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;trait&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;AsyncWrite&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;c&quot;&gt;/// Attempts to write all buf.len() bytes from buf into the&lt;/span&gt;
-    &lt;span class=&quot;c&quot;&gt;/// stream. Returns once all of the bytes have been written.&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;write&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;])&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;AsyncStatus&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Result&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+    &lt;span class=&quot;cd&quot;&gt;/// Attempts to write all buf.len() bytes from buf into the&lt;/span&gt;
+    &lt;span class=&quot;cd&quot;&gt;/// stream. Returns once all of the bytes have been written.&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;write&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;])&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;AsyncStatus&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;Result&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
 &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
 
 &lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;trait&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;AsyncRead&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;c&quot;&gt;/// Attempts to read buf.len() bytes from the stream,&lt;/span&gt;
-    &lt;span class=&quot;c&quot;&gt;/// writing them into buf. Returns the number of bytes&lt;/span&gt;
-    &lt;span class=&quot;c&quot;&gt;/// actually read. Returns as soon as min_bytes are&lt;/span&gt;
-    &lt;span class=&quot;c&quot;&gt;/// read or EOF is encountered.&lt;/span&gt;
+    &lt;span class=&quot;cd&quot;&gt;/// Attempts to read buf.len() bytes from the stream,&lt;/span&gt;
+    &lt;span class=&quot;cd&quot;&gt;/// writing them into buf. Returns the number of bytes&lt;/span&gt;
+    &lt;span class=&quot;cd&quot;&gt;/// actually read. Returns as soon as min_bytes are&lt;/span&gt;
+    &lt;span class=&quot;cd&quot;&gt;/// read or EOF is encountered.&lt;/span&gt;
     &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;try_read&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
                 &lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt;
-                &lt;span class=&quot;n&quot;&gt;min_bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;usize&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
-        &lt;span class=&quot;o&quot;&gt;-&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;AsyncStatus&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Result&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;usize&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+                &lt;span class=&quot;n&quot;&gt;min_bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;usize&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;o&quot;&gt;-&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;AsyncStatus&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;Result&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;usize&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
 
-    &lt;span class=&quot;c&quot;&gt;/// Like try_read(), but returns an error if EOF is&lt;/span&gt;
-    &lt;span class=&quot;c&quot;&gt;/// encountered before min_bytes can be read.&lt;/span&gt;
+    &lt;span class=&quot;cd&quot;&gt;/// Like try_read(), but returns an error if EOF is&lt;/span&gt;
+    &lt;span class=&quot;cd&quot;&gt;/// encountered before min_bytes can be read.&lt;/span&gt;
     &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;read&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
             &lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt;
-            &lt;span class=&quot;n&quot;&gt;min_bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;usize&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
-        &lt;span class=&quot;o&quot;&gt;-&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;AsyncStatus&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Result&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;usize&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+            &lt;span class=&quot;n&quot;&gt;min_bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;usize&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+        &lt;span class=&quot;o&quot;&gt;-&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;AsyncStatus&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;Result&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;usize&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
     &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-       &lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nd&quot;&gt;try!&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;yield&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;from&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.try_read&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;min_bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;));&lt;/span&gt;
+       &lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;try&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;!&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;yield&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;from&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.try_read&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;min_bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;));&lt;/span&gt;
        &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;min_bytes&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
            &lt;span class=&quot;nf&quot;&gt;Err&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;Error&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;ErrorKind&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;UnexpectedEof&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
                           &lt;span class=&quot;nd&quot;&gt;format!&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;expected {} but got {} bytes&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
@@ -792,7 +1004,7 @@ for running them when they are ready.
 When a task runs and needs to pend on some I/O, it yields
 back what it’s currently waiting on, for example a file descriptor.
 When none of the tasks can make any progress, the executor calls
-a OS-specific API like &lt;code class=&quot;highlighter-rouge&quot;&gt;kevent()&lt;/code&gt; to wait until more progress can be made.&lt;/p&gt;
+a OS-specific API like &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;kevent()&lt;/code&gt; to wait until more progress can be made.&lt;/p&gt;
 
 &lt;p&gt;Unlike with fibers/green threading, it remains very clear where
 switches-between-tasks can take place.
@@ -802,8 +1014,8 @@ on the heap. Generator-based async-I/O seems like an all-around win!&lt;/p&gt;
 &lt;p&gt;&lt;a href=&quot;https://www.reddit.com/r/rust/comments/4li9v2/generators_are_the_missing_piece_for_async/&quot;&gt;(discussion on /r/rust)&lt;/a&gt;&lt;/p&gt;
 </description>
                                 <pubDate>Sat, 28 May 2016 00:00:00 -0400</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2016/05/28/async-generators.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2016/05/28/async-generators.html</guid>
+                                <link>http://localhost:4000/2016/05/28/async-generators.html</link>
+                                <guid isPermaLink="true">http://localhost:4000/2016/05/28/async-generators.html</guid>
                         </item>
                 
                         <item>
@@ -814,21 +1026,21 @@ The major change in this release is that all of the
 I/O code has been split out into a separate crate
 called
 &lt;a href=&quot;https://github.com/dwrensha/gjio&quot;&gt;gjio&lt;/a&gt;.
-The main gj crate still defines the core &lt;code class=&quot;highlighter-rouge&quot;&gt;Promise&lt;/code&gt;
-and &lt;code class=&quot;highlighter-rouge&quot;&gt;EventLoop&lt;/code&gt; structures,
+The main gj crate still defines the core &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Promise&lt;/code&gt;
+and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;EventLoop&lt;/code&gt; structures,
 but gjio implements all the specifics about how events are
 received from the outside world.
-The &lt;a href=&quot;https://docs.rs/gjio/0.1.3/gjio/struct.EventPort.html&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;EventPort&lt;/code&gt;&lt;/a&gt; trait
+The &lt;a href=&quot;https://docs.rs/gjio/0.1.3/gjio/struct.EventPort.html&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;EventPort&lt;/code&gt;&lt;/a&gt; trait
 is the hook that allows gj to use those specifics.
 If for whatever reason you decide you don’t like gjio, you can write your own
-&lt;code class=&quot;highlighter-rouge&quot;&gt;EventPort&lt;/code&gt; impelemention and still use gj.&lt;/p&gt;
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;EventPort&lt;/code&gt; impelemention and still use gj.&lt;/p&gt;
 
-&lt;p&gt;As I’ve moved the &lt;code class=&quot;highlighter-rouge&quot;&gt;gj::io&lt;/code&gt; module into its own crate,
+&lt;p&gt;As I’ve moved the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;gj::io&lt;/code&gt; module into its own crate,
 I’ve taken the opportunity to iterate somewhat on the design.
 Probably the most prominent change is
-that the methods of &lt;a href=&quot;https://docs.rs/gjio/0.1.3/gjio/trait.AsyncRead.html&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;AsyncRead&lt;/code&gt;&lt;/a&gt;
-and &lt;a href=&quot;https://docs.rs/gjio/0.1.3/gjio/trait.AsyncWrite.html&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;AsyncWrite&lt;/code&gt;&lt;/a&gt;
-now take &lt;code class=&quot;highlighter-rouge&quot;&gt;self&lt;/code&gt; by reference
+that the methods of &lt;a href=&quot;https://docs.rs/gjio/0.1.3/gjio/trait.AsyncRead.html&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AsyncRead&lt;/code&gt;&lt;/a&gt;
+and &lt;a href=&quot;https://docs.rs/gjio/0.1.3/gjio/trait.AsyncWrite.html&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AsyncWrite&lt;/code&gt;&lt;/a&gt;
+now take &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;self&lt;/code&gt; by reference
 rather than by move, which I think is an ergnomonic win.
 Judge for yourself by checking out the
 &lt;a href=&quot;https://github.com/dwrensha/gj/blob/v0.1.2/examples/echo.rs&quot;&gt;old version&lt;/a&gt;
@@ -836,7 +1048,7 @@ and the
 &lt;a href=&quot;https://github.com/dwrensha/gjio/blob/v0.1.0/examples/echo.rs&quot;&gt;new version&lt;/a&gt;
 of a TCP echo example.&lt;/p&gt;
 
-&lt;p&gt;A notable under-the-hood change is that, unlike the old &lt;code class=&quot;highlighter-rouge&quot;&gt;gj:io&lt;/code&gt; module,
+&lt;p&gt;A notable under-the-hood change is that, unlike the old &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;gj:io&lt;/code&gt; module,
 the new gjio crate implements its own custom low level
 &lt;a href=&quot;https://github.com/dwrensha/gjio/blob/v0.1.0/src/sys/unix/epoll.rs&quot;&gt;system&lt;/a&gt;
 &lt;a href=&quot;https://github.com/dwrensha/gjio/blob/v0.1.0/src/sys/unix/kqueue.rs&quot;&gt;specific&lt;/a&gt;
@@ -845,114 +1057,12 @@ for calling the non-blocking I/O interfaces of Linux, OSX, and Windows.
 Doing so requires less code than you might think,
 especially because native nonblocking I/O model on Windows
 is a good match for the completion-based interfaces of gjio’s
-&lt;code class=&quot;highlighter-rouge&quot;&gt;AsyncRead&lt;/code&gt; and &lt;code class=&quot;highlighter-rouge&quot;&gt;AsyncWrite&lt;/code&gt;.&lt;/p&gt;
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AsyncRead&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;AsyncWrite&lt;/code&gt;.&lt;/p&gt;
 
 </description>
                                 <pubDate>Sun, 24 Apr 2016 00:00:00 -0400</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2016/04/24/gj-io-split.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2016/04/24/gj-io-split.html</guid>
-                        </item>
-                
-                        <item>
-                                <title>RPC system rewritten to use async I/O</title>
-                                <description>&lt;p&gt;Today I’ve released
-verson 0.6 of the three main Cap’n Proto crates:
-the &lt;a href=&quot;https://crates.io/crates/capnp/&quot;&gt;runtime&lt;/a&gt;,
-the &lt;a href=&quot;https://crates.io/crates/capnpc/&quot;&gt;code generator&lt;/a&gt;,
-and the &lt;a href=&quot;https://crates.io/crates/capnp-rpc/&quot;&gt;remote procedure call system&lt;/a&gt;.&lt;/p&gt;
-
-&lt;p&gt;The biggest change is that the RPC system
-is now asynchronous, built on top of the &lt;a href=&quot;https://crates.io/crates/gj/&quot;&gt;GJ&lt;/a&gt;
-event loop library.&lt;/p&gt;
-
-&lt;h3 id=&quot;promises&quot;&gt;promises&lt;/h3&gt;
-
-&lt;p&gt;&lt;a href=&quot;https://capnproto.org/rpc.html&quot;&gt;Cap’n Proto’s RPC protocol&lt;/a&gt;
-allows method calls to be made on distributed objects.
-It has a built-in notion of pipelining that can minimize network round-trips,
-and it allows object references to be
-transmitted within messages, alongside plain-old-data.&lt;/p&gt;
-
-&lt;p&gt;Such a system has an inherent need
-to deal with concurrency,
-both in its internal implementation in its publicly-exposed interfaces.&lt;/p&gt;
-
-&lt;p&gt;For example, it’s common for a user to want to implement an
-RPC method that makes a bunch of other RPC calls
-and then collects their results
-before returning.
-How should these actions compose?
-In the new version of &lt;code class=&quot;highlighter-rouge&quot;&gt;capnp-rpc&lt;/code&gt;,
-which uses GJ’s &lt;a href=&quot;https://docs.rs/gj/0.2.0/gj/struct.Promise.html&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;Promise&lt;/code&gt;&lt;/a&gt; abstraction,
-each of the inner method calls
-returns a promise,
-and those promises can be collected with &lt;code class=&quot;highlighter-rouge&quot;&gt;Promise::all()&lt;/code&gt;
-to form a new promise which can then be returned from the outer method.&lt;/p&gt;
-
-&lt;p&gt;To see more concretely what this kind of thing looks like,
-take a look at the
-&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/tree/master/capnp-rpc/examples/calculator&quot;&gt;calculator example&lt;/a&gt;,
-which also showcases some fancier features.
-There are also some more-practical examples
-in the form of &lt;a href=&quot;https://sandstorm.io&quot;&gt;Sandstorm&lt;/a&gt; apps:
-a simple &lt;a href=&quot;https://github.com/dwrensha/sandstorm-rawapi-example-rust&quot;&gt;GET/PUT/DELETE server&lt;/a&gt;
-and a &lt;a href=&quot;https://github.com/dwrensha/acronymy&quot;&gt;word game&lt;/a&gt;.&lt;/p&gt;
-
-&lt;h3 id=&quot;error-handling&quot;&gt;error handling&lt;/h3&gt;
-
-&lt;p&gt;A &lt;code class=&quot;highlighter-rouge&quot;&gt;Promise&amp;lt;T, E&amp;gt;&lt;/code&gt; is essentially a deferred &lt;code class=&quot;highlighter-rouge&quot;&gt;Result&amp;lt;T, E&amp;gt;&lt;/code&gt;,
-so it should be no surprise that
-today’s release pertains to
-our &lt;a href=&quot;/capnproto-rust/2014/04/06/error-handling.html&quot;&gt;continuing&lt;/a&gt;
-&lt;a href=&quot;/capnproto-rust/2015/03/21/error-handling-revisited.html&quot;&gt;story&lt;/a&gt;
-about error handling.&lt;/p&gt;
-
-&lt;p&gt;Last time, we described our switch to using &lt;code class=&quot;highlighter-rouge&quot;&gt;Result&amp;lt;T,E&amp;gt;&lt;/code&gt; pervasively,
-so that we could return an &lt;code class=&quot;highlighter-rouge&quot;&gt;Err(e)&lt;/code&gt; on a decode error,
-rather than panicking.
-That switch had some costs:&lt;/p&gt;
-
-&lt;ol&gt;
-  &lt;li&gt;We now need to sprinkle &lt;code class=&quot;highlighter-rouge&quot;&gt;try!()&lt;/code&gt;s in our code, one for any time we dereference a Cap’n Proto pointer.&lt;/li&gt;
-  &lt;li&gt;We also need to edit some return types from &lt;code class=&quot;highlighter-rouge&quot;&gt;T&lt;/code&gt; to &lt;code class=&quot;highlighter-rouge&quot;&gt;Result&amp;lt;T, E&amp;gt;&lt;/code&gt;,
-and in some cases need to define helper functions so that &lt;code class=&quot;highlighter-rouge&quot;&gt;try!()&lt;/code&gt; has a place to return to.&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;p&gt;In my opinion, (1) is not so bad, and it has the advantage of making control flow more clear.
-The &lt;a href=&quot;https://github.com/rust-lang/rfcs/pull/243&quot;&gt;proposed &lt;code class=&quot;highlighter-rouge&quot;&gt;?&lt;/code&gt; operator&lt;/a&gt;
-would make this even nicer.&lt;/p&gt;
-
-&lt;p&gt;In the asynchronous world of Cap’n Proto RPC,
-(2) becomes less of a hassle, because
-most functions that need to read a Cap’n Proto message
-are asynchronous, and therefore already return a &lt;code class=&quot;highlighter-rouge&quot;&gt;Promise&amp;lt;T, E&amp;gt;&lt;/code&gt;.
-In such cases, we can use the &lt;a href=&quot;https://docs.rs/gj/0.2.0/gj/macro.pry!.html&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;pry!()&lt;/code&gt;&lt;/a&gt;
-macro that GJ defines. The &lt;code class=&quot;highlighter-rouge&quot;&gt;pry!()&lt;/code&gt; macro acts like &lt;code class=&quot;highlighter-rouge&quot;&gt;try!()&lt;/code&gt;, but in the early return case returns
-&lt;code class=&quot;highlighter-rouge&quot;&gt;Promise::err(e)&lt;/code&gt; rather than &lt;code class=&quot;highlighter-rouge&quot;&gt;Result::Err(e)&lt;/code&gt;.&lt;/p&gt;
-
-&lt;h3 id=&quot;a-simpler-error-type&quot;&gt;a simpler error type&lt;/h3&gt;
-
-&lt;p&gt;One error-related question that often arises when designing interfaces that use &lt;code class=&quot;highlighter-rouge&quot;&gt;Promise&amp;lt;T,E&amp;gt;&lt;/code&gt; is:
-what concrete error type should be plugged in for &lt;code class=&quot;highlighter-rouge&quot;&gt;E&lt;/code&gt;?&lt;/p&gt;
-
-&lt;p&gt;In previous versions of capnproto-rust, I had defined an error enum &lt;code class=&quot;highlighter-rouge&quot;&gt;capnp::Error&lt;/code&gt;
-with various cases, one of which wrapped a &lt;code class=&quot;highlighter-rouge&quot;&gt;std::io::Error&lt;/code&gt;.
-This got me into trouble when I wanted to start using
-&lt;a href=&quot;https://docs.rs/gj/0.2.0/gj/struct.Promise.html#method.fork&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;Promise::fork()&lt;/code&gt;&lt;/a&gt;,
-which requires that &lt;code class=&quot;highlighter-rouge&quot;&gt;E&lt;/code&gt; be &lt;a href=&quot;https://doc.rust-lang.org/stable/std/clone/trait.Clone.html&quot;&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;Clone&lt;/code&gt;&lt;/a&gt;.
-The problem is that &lt;code class=&quot;highlighter-rouge&quot;&gt;std::io::Error&lt;/code&gt; is not &lt;code class=&quot;highlighter-rouge&quot;&gt;Clone&lt;/code&gt;!&lt;/p&gt;
-
-&lt;p&gt;To address this problem, I have redefined &lt;code class=&quot;highlighter-rouge&quot;&gt;::capnp::Error&lt;/code&gt; to follow the design of
-&lt;a href=&quot;https://github.com/sandstorm-io/capnproto/blob/master/c%2B%2B/src/kj/exception.h&quot;&gt;kj::Exception&lt;/a&gt;.
-It’s now a very simple struct with a &lt;code class=&quot;highlighter-rouge&quot;&gt;String&lt;/code&gt; description and an &lt;code class=&quot;highlighter-rouge&quot;&gt;ErrorKind&lt;/code&gt; enum,
-where the only variants of
-&lt;code class=&quot;highlighter-rouge&quot;&gt;ErrorKind&lt;/code&gt; are &lt;code class=&quot;highlighter-rouge&quot;&gt;Failed&lt;/code&gt;, &lt;code class=&quot;highlighter-rouge&quot;&gt;Disconnected&lt;/code&gt;, &lt;code class=&quot;highlighter-rouge&quot;&gt;Overloaded&lt;/code&gt;, and &lt;code class=&quot;highlighter-rouge&quot;&gt;Unimplemented&lt;/code&gt;.
-The observation here is that there seems to be very little gained by
-defining hierarchies of errors wrapping other errors.&lt;/p&gt;
-</description>
-                                <pubDate>Mon, 11 Jan 2016 00:00:00 -0500</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2016/01/11/async-rpc.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2016/01/11/async-rpc.html</guid>
+                                <link>http://localhost:4000/2016/04/24/gj-io-split.html</link>
+                                <guid isPermaLink="true">http://localhost:4000/2016/04/24/gj-io-split.html</guid>
                         </item>
                 
         </channel>

@@ -14,45 +14,43 @@
 
 <p>A number of people have asked me whether
 Cap’n Proto might be able to hook into
-the <code class="highlighter-rouge">Encodable</code> and <code class="highlighter-rouge">Decodable</code>
-traits of Rust’s <code class="highlighter-rouge">libserialize</code>.
+the <code class="language-plaintext highlighter-rouge">Encodable</code> and <code class="language-plaintext highlighter-rouge">Decodable</code>
+traits of Rust’s <code class="language-plaintext highlighter-rouge">libserialize</code>.
 My current answer is
 “perhaps, but it probably wouldn’t buy us much.”</p>
 
 <h4 id="libserialize">libserialize</h4>
 
-<p>The purpose of <code class="highlighter-rouge">Encodable</code> and <code class="highlighter-rouge">Decodable</code>
+<p>The purpose of <code class="language-plaintext highlighter-rouge">Encodable</code> and <code class="language-plaintext highlighter-rouge">Decodable</code>
 is to provide a convenient way
 to make existing Rust data types
 mobile.
-For example, you might have a Rust data type <code class="highlighter-rouge">Foo</code>,</p>
+For example, you might have a Rust data type <code class="language-plaintext highlighter-rouge">Foo</code>,</p>
 
-<div class="highlighter-rouge"><pre class="highlight"><code>struct Foo {
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>struct Foo {
   a : u64,
   b : String,
 }
-</code></pre>
-</div>
+</code></pre></div></div>
 
 <p>and you might encounter a need to
-send values of type <code class="highlighter-rouge">Foo</code> between processes.
-Using <code class="highlighter-rouge">libserialize</code>, you can
-add a <code class="highlighter-rouge">deriving</code> annotation, like this:</p>
+send values of type <code class="language-plaintext highlighter-rouge">Foo</code> between processes.
+Using <code class="language-plaintext highlighter-rouge">libserialize</code>, you can
+add a <code class="language-plaintext highlighter-rouge">deriving</code> annotation, like this:</p>
 
-<div class="highlighter-rouge"><pre class="highlight"><code>#[deriving(Encodable, Decodable)]
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>#[deriving(Encodable, Decodable)]
 struct Foo {
   a : u64,
   b : String,
 }
-</code></pre>
-</div>
+</code></pre></div></div>
 
-<p>which automatically gives <code class="highlighter-rouge">Foo</code>
+<p>which automatically gives <code class="language-plaintext highlighter-rouge">Foo</code>
 the methods
-<code class="highlighter-rouge">encode</code> and <code class="highlighter-rouge">decode</code>,
+<code class="language-plaintext highlighter-rouge">encode</code> and <code class="language-plaintext highlighter-rouge">decode</code>,
 allowing translation to and from
 JSON, EBML, or any other encoding
-that implements the <code class="highlighter-rouge">Encoder</code> and <code class="highlighter-rouge">Decoder</code> traits.</p>
+that implements the <code class="language-plaintext highlighter-rouge">Encoder</code> and <code class="language-plaintext highlighter-rouge">Decoder</code> traits.</p>
 
 <p>In the case of JSON,
 this approach has a secondary use case.
@@ -60,7 +58,7 @@ For structs, arrays, and primitives,
 the mapping between Rust and JSON
 is canonical and simple enough
 that you can in fact use
-<code class="highlighter-rouge">libserialize</code>’s JSON codec
+<code class="language-plaintext highlighter-rouge">libserialize</code>’s JSON codec
 for communication with externally
 defined interfaces,
 as when you’re constructing the JSON body of
@@ -76,24 +74,23 @@ For the above example, we would have a
 <a href="http://kentonv.github.io/capnproto/language.html">schema file</a>
 containing this definition:</p>
 
-<div class="highlighter-rouge"><pre class="highlight"><code>struct Foo {
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>struct Foo {
   a @0 : UInt64;
   b @1 : Text;
 }
-</code></pre>
-</div>
+</code></pre></div></div>
 
 <p>We could then use that schema to generate
 code in any of the <a href="https://kentonv.github.io/capnproto/otherlang.html">supported languages</a>.
 For Rust, this would give us
 types named
-<code class="highlighter-rouge">Foo::Reader</code> and <code class="highlighter-rouge">Foo::Builder</code>
+<code class="language-plaintext highlighter-rouge">Foo::Reader</code> and <code class="language-plaintext highlighter-rouge">Foo::Builder</code>
 with accessor methods
 providing
-access to the <code class="highlighter-rouge">a</code> and <code class="highlighter-rouge">b</code> fields.
+access to the <code class="language-plaintext highlighter-rouge">a</code> and <code class="language-plaintext highlighter-rouge">b</code> fields.
 You can think of these readers and builders
 as fancy pointers into a byte array
-representing an <em>already serialized</em> <code class="highlighter-rouge">Foo</code>.
+representing an <em>already serialized</em> <code class="language-plaintext highlighter-rouge">Foo</code>.
 Cap’n Proto lets us access and modify
 these bytes in a way that’s nearly
 as convenient as accessing and modifying
@@ -126,10 +123,10 @@ An alternative on the opposite side of the
 spectrum
 would be to
 mimic the behavior of the JSON codec.
-You could implement <code class="highlighter-rouge">Encoder</code> and <code class="highlighter-rouge">Decoder</code>
+You could implement <code class="language-plaintext highlighter-rouge">Encoder</code> and <code class="language-plaintext highlighter-rouge">Decoder</code>
 for a Cap’n Proto schema describing Rust values, as outlined below.</p>
 
-<div class="highlighter-rouge"><pre class="highlight"><code>struct RustValue {
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>struct RustValue {
   union {
     struct  @0 : Struct;
     variant @1 : Variant;
@@ -155,8 +152,7 @@ struct Variant {
    name  @0 : Text;
    args  @1 : List(RustValue);
 }
-</code></pre>
-</div>
+</code></pre></div></div>
 
 <p>Note that this may or may not actually be
 more efficient than the JSON version.</p>
@@ -166,7 +162,7 @@ move the data type definitions into a schema file
 but keep the Rust type definitions as well,
 and to implement some code generation
 for translating between them,
-perhaps through the <code class="highlighter-rouge">Encoder</code> and <code class="highlighter-rouge">Decoder</code> traits or something similar.
+perhaps through the <code class="language-plaintext highlighter-rouge">Encoder</code> and <code class="language-plaintext highlighter-rouge">Decoder</code> traits or something similar.
 This would preserve some of the advantages
 of both approaches, but would likely add considerable complexity.</p>
 

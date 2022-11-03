@@ -18,58 +18,56 @@ in using capnproto-rust in <a href="https://rust-embedded.github.io/book/intro/n
 – that is, without pulling in the Rust standard library.
 Today I’m happy to announce that the latest release, version 0.13.0, supports that.</p>
 
-<p>To use a <code class="highlighter-rouge">no_std</code> capnproto-rust,
-update your <code class="highlighter-rouge">Cargo.toml</code> to the new <code class="highlighter-rouge">capnp</code> version and disable default features, like this:</p>
+<p>To use a <code class="language-plaintext highlighter-rouge">no_std</code> capnproto-rust,
+update your <code class="language-plaintext highlighter-rouge">Cargo.toml</code> to the new <code class="language-plaintext highlighter-rouge">capnp</code> version and disable default features, like this:</p>
 
-<div class="highlighter-rouge"><pre class="highlight"><code><span class="nn">[capnp.dependencies]</span>
+<div class="language-toml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nn">[capnp.dependencies]</span>
 <span class="py">version</span> <span class="p">=</span> <span class="s">"0.13"</span>
 <span class="py">default-features</span> <span class="p">=</span> <span class="kc">false</span>
-</code></pre>
-</div>
+</code></pre></div></div>
 
 <p>This turns off the new
 <a href="https://github.com/capnproto/capnproto-rust/blob/e2836823318d95668f10443d9f2feea8378ae95f/capnp/Cargo.toml#L36-L38">“std” feature flag</a>
-in the <code class="highlighter-rouge">capnp</code> crate.
+in the <code class="language-plaintext highlighter-rouge">capnp</code> crate.
 In turn, that feature controls a
-<a href="https://github.com/capnproto/capnproto-rust/blob/e2836823318d95668f10443d9f2feea8378ae95f/capnp/src/lib.rs#L30">crate-level <code class="highlighter-rouge">no_std</code> attribute</a>
+<a href="https://github.com/capnproto/capnproto-rust/blob/e2836823318d95668f10443d9f2feea8378ae95f/capnp/src/lib.rs#L30">crate-level <code class="language-plaintext highlighter-rouge">no_std</code> attribute</a>
 and gates the parts of the crate that depend on the standard library.</p>
 
 <h2 id="example">Example</h2>
 
-<p>To see <code class="highlighter-rouge">no_std</code> capnproto-rust in action,
+<p>To see <code class="language-plaintext highlighter-rouge">no_std</code> capnproto-rust in action,
 check out this <a href="https://github.com/capnproto/capnproto-rust/tree/master/example/wasm-hello-world">new example</a>
 that passes data to a WebAssembly function through a Cap’n Proto message.
 I observed the size of this example’s generated wasm code to shrink from
-1.6MB down to 660KB when I added <code class="highlighter-rouge">#![no_std]</code>.</p>
+1.6MB down to 660KB when I added <code class="language-plaintext highlighter-rouge">#![no_std]</code>.</p>
 
 <h2 id="io-traits">I/O traits</h2>
 
-<p>The biggest challenge in getting capnproto-rust to work with <code class="highlighter-rouge">no_std</code> was dealing with
+<p>The biggest challenge in getting capnproto-rust to work with <code class="language-plaintext highlighter-rouge">no_std</code> was dealing with
 input/output traits.
 In previous releases, capnproto-rust defined its main serialization functions in terms of
-<code class="highlighter-rouge">std::io::Read</code> and <code class="highlighter-rouge">std::io::Write</code>. That would be a problem in a <code class="highlighter-rouge">no_std</code> context,
-because those traits are <a href="https://github.com/rust-lang/rust/issues/48331">stuck in <code class="highlighter-rouge">std</code></a>.</p>
+<code class="language-plaintext highlighter-rouge">std::io::Read</code> and <code class="language-plaintext highlighter-rouge">std::io::Write</code>. That would be a problem in a <code class="language-plaintext highlighter-rouge">no_std</code> context,
+because those traits are <a href="https://github.com/rust-lang/rust/issues/48331">stuck in <code class="language-plaintext highlighter-rouge">std</code></a>.</p>
 
 <p>The solution I settled on was to define custom
-<a href="https://github.com/capnproto/capnproto-rust/blob/e2836823318d95668f10443d9f2feea8378ae95f/capnp/src/io.rs#L9"><code class="highlighter-rouge">capnp::io::Read</code></a>
+<a href="https://github.com/capnproto/capnproto-rust/blob/e2836823318d95668f10443d9f2feea8378ae95f/capnp/src/io.rs#L9"><code class="language-plaintext highlighter-rouge">capnp::io::Read</code></a>
 and
-<a href="https://github.com/capnproto/capnproto-rust/blob/e2836823318d95668f10443d9f2feea8378ae95f/capnp/src/io.rs#L44"><code class="highlighter-rouge">capnp::io::Write</code></a>
-traits, and then to define the <code class="highlighter-rouge">capnp</code> serialization functions in terms of those.</p>
+<a href="https://github.com/capnproto/capnproto-rust/blob/e2836823318d95668f10443d9f2feea8378ae95f/capnp/src/io.rs#L44"><code class="language-plaintext highlighter-rouge">capnp::io::Write</code></a>
+traits, and then to define the <code class="language-plaintext highlighter-rouge">capnp</code> serialization functions in terms of those.</p>
 
 <p>Blanket impls like the following then allow existing call sites to
 continue to work without being altered:</p>
 
-<div class="highlighter-rouge"><pre class="highlight"><code><span class="err">#</span><span class="p">[</span><span class="nf">cfg</span><span class="p">(</span><span class="n">feature</span><span class="o">=</span><span class="s">"std"</span><span class="p">)]</span>
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nd">#[cfg(feature=</span><span class="s">"std"</span><span class="nd">)]</span>
 <span class="k">mod</span> <span class="n">std_impls</span> <span class="p">{</span>
-  <span class="k">impl</span> <span class="o">&lt;</span><span class="n">R</span><span class="p">:</span> <span class="nn">std</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Read</span><span class="o">&gt;</span> <span class="nn">crate</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Read</span> <span class="k">for</span> <span class="n">R</span> <span class="p">{</span>
-    <span class="err">...</span>
+  <span class="k">impl</span> <span class="o">&lt;</span><span class="n">R</span><span class="p">:</span> <span class="nn">std</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Read</span><span class="o">&gt;</span> <span class="k">crate</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Read</span> <span class="k">for</span> <span class="n">R</span> <span class="p">{</span>
+    <span class="o">...</span>
   <span class="p">}</span>
-  <span class="k">impl</span> <span class="o">&lt;</span><span class="n">W</span><span class="p">:</span> <span class="nn">std</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Write</span><span class="o">&gt;</span> <span class="nn">crate</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Write</span> <span class="k">for</span> <span class="n">W</span> <span class="p">{</span>
-    <span class="err">...</span>
+  <span class="k">impl</span> <span class="o">&lt;</span><span class="n">W</span><span class="p">:</span> <span class="nn">std</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Write</span><span class="o">&gt;</span> <span class="k">crate</span><span class="p">::</span><span class="nn">io</span><span class="p">::</span><span class="n">Write</span> <span class="k">for</span> <span class="n">W</span> <span class="p">{</span>
+    <span class="o">...</span>
   <span class="p">}</span>
 <span class="p">}</span>
-</code></pre>
-</div>
+</code></pre></div></div>
 
 <h2 id="why-now">Why now?</h2>
 
@@ -77,12 +75,12 @@ continue to work without being altered:</p>
 
 <ol>
   <li>The <a href="https://github.com/rust-lang/rust/pull/59675">stabilization of the alloc crate</a>
-means that collections like <code class="highlighter-rouge">Vec</code> are now usable with <code class="highlighter-rouge">no_std</code>. (capnproto-rust strives
+means that collections like <code class="language-plaintext highlighter-rouge">Vec</code> are now usable with <code class="language-plaintext highlighter-rouge">no_std</code>. (capnproto-rust strives
 to minimize allocations, but still relies on the global allocator for some things like
 messages with a dynamic number of segments.)</li>
   <li><a href="https://github.com/rust-lang/rust/pull/69033">no_std support for async/await</a> means that
-we can use <code class="highlighter-rouge">async</code> blocks wherever we want. Previously, we would have needed to define
-some custom <code class="highlighter-rouge">Future</code> implementations to avoid putting an <code class="highlighter-rouge">async</code> block in the <code class="highlighter-rouge">capnp</code> crate.</li>
+we can use <code class="language-plaintext highlighter-rouge">async</code> blocks wherever we want. Previously, we would have needed to define
+some custom <code class="language-plaintext highlighter-rouge">Future</code> implementations to avoid putting an <code class="language-plaintext highlighter-rouge">async</code> block in the <code class="language-plaintext highlighter-rouge">capnp</code> crate.</li>
 </ol>
 
 <h2 id="thanks">Thanks</h2>

@@ -13,28 +13,28 @@
 <p>
 
 <p>Rust’s <em>mutable references</em> provide exclusive access to writable locations in memory.
-If we have <code class="highlighter-rouge">x : &amp;'a mut T</code>,
-then we know that the referred-to <code class="highlighter-rouge">T</code>
-cannot be read or modified except through dereferencing <code class="highlighter-rouge">x</code>.
-In other words, <code class="highlighter-rouge">x</code> can have no aliases.
+If we have <code class="language-plaintext highlighter-rouge">x : &amp;'a mut T</code>,
+then we know that the referred-to <code class="language-plaintext highlighter-rouge">T</code>
+cannot be read or modified except through dereferencing <code class="language-plaintext highlighter-rouge">x</code>.
+In other words, <code class="language-plaintext highlighter-rouge">x</code> can have no aliases.
 This guarantee is
 crucial for memory safety,
 as it implies that
 any mutations we apply through
-<code class="highlighter-rouge">x</code> have no risk of invalidating references held
+<code class="language-plaintext highlighter-rouge">x</code> have no risk of invalidating references held
 elsewhere in our program.</p>
 
-<p>The <code class="highlighter-rouge">Builder</code> types
+<p>The <code class="language-plaintext highlighter-rouge">Builder</code> types
 of <a href="https://github.com/dwrensha/capnproto-rust">capnproto-rust</a>
 also need to provide an exclusivity guarantee.
-Recall that if <code class="highlighter-rouge">Foo</code> is a struct defined in a Cap’n Proto schema,
-then a <code class="highlighter-rouge">foo::Builder&lt;'a&gt;</code>
+Recall that if <code class="language-plaintext highlighter-rouge">Foo</code> is a struct defined in a Cap’n Proto schema,
+then a <code class="language-plaintext highlighter-rouge">foo::Builder&lt;'a&gt;</code>
 provides access to a writable location
 in arena-allocated memory that contains
-a <code class="highlighter-rouge">Foo</code> in <a href="https://kentonv.github.io/capnproto/encoding.html">Cap’n Proto format</a>.
-To protect access to that memory, a <code class="highlighter-rouge">foo::Builder&lt;'a&gt;</code> ought to behave
-as if it were a <code class="highlighter-rouge">&amp;'a mut Foo</code>,
-even though the <code class="highlighter-rouge">Foo</code> type
+a <code class="language-plaintext highlighter-rouge">Foo</code> in <a href="https://kentonv.github.io/capnproto/encoding.html">Cap’n Proto format</a>.
+To protect access to that memory, a <code class="language-plaintext highlighter-rouge">foo::Builder&lt;'a&gt;</code> ought to behave
+as if it were a <code class="language-plaintext highlighter-rouge">&amp;'a mut Foo</code>,
+even though the <code class="language-plaintext highlighter-rouge">Foo</code> type
 cannot directly exist in Rust
 (because Cap’n Proto struct layout
 differs from Rust struct layout).</p>
@@ -43,25 +43,24 @@ differs from Rust struct layout).</p>
 
 <p>As we’ll see, the easy part is ensuring exclusive access,
 which can be achieved simply by not
-implementing the <code class="highlighter-rouge">Copy</code> trait for <code class="highlighter-rouge">foo::Builder&lt;'a&gt;</code>.
+implementing the <code class="language-plaintext highlighter-rouge">Copy</code> trait for <code class="language-plaintext highlighter-rouge">foo::Builder&lt;'a&gt;</code>.
 The tricky part is making it ergonomic to reuse a reference,
 something that built-in mutable references achieve through
 special <em>automatic reborrowing</em> semantics. Our custom references
 can use similar semantics, but they need to be slightly more explicit about it.</p>
 
-<p>Okay, let’s get concrete. Suppose that <code class="highlighter-rouge">Foo</code> is defined in a Cap’n Proto schema like this:</p>
+<p>Okay, let’s get concrete. Suppose that <code class="language-plaintext highlighter-rouge">Foo</code> is defined in a Cap’n Proto schema like this:</p>
 
-<div class="highlighter-rouge"><pre class="highlight"><code>struct Foo {
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>struct Foo {
   x @0 : Float32;
   blob @1 : Data;
 }
-</code></pre>
-</div>
+</code></pre></div></div>
 
-<p>When we call <code class="highlighter-rouge">capnp compile -orust foo.capnp</code>, we get generated code
+<p>When we call <code class="language-plaintext highlighter-rouge">capnp compile -orust foo.capnp</code>, we get generated code
 containing the following definitions:</p>
 
-<div class="highlighter-rouge"><pre class="highlight"><code>mod foo {
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mod foo {
   pub struct Builder&lt;'a&gt; {...}
 
   impl &lt;'a&gt; Builder&lt;'a&gt; {
@@ -74,115 +73,107 @@ containing the following definitions:</p>
   }
   ...
 }
-</code></pre>
-</div>
+</code></pre></div></div>
 
 <p>You see here the usual accessor methods that allow us to
-read and modify a <code class="highlighter-rouge">Foo</code>.
-Note that the <code class="highlighter-rouge">get_</code> and <code class="highlighter-rouge">init_</code> methods take a by-value <code class="highlighter-rouge">self</code>
+read and modify a <code class="language-plaintext highlighter-rouge">Foo</code>.
+Note that the <code class="language-plaintext highlighter-rouge">get_</code> and <code class="language-plaintext highlighter-rouge">init_</code> methods take a by-value <code class="language-plaintext highlighter-rouge">self</code>
 parameter.
-This ensures that at most one <code class="highlighter-rouge">::capnp::data::Builder</code> referring to the <code class="highlighter-rouge">blob</code> field
+This ensures that at most one <code class="language-plaintext highlighter-rouge">::capnp::data::Builder</code> referring to the <code class="language-plaintext highlighter-rouge">blob</code> field
 can be obtained.
-For example, if we call <code class="highlighter-rouge">foo.init_blob()</code> then we cannot later call <code class="highlighter-rouge">foo.get_blob()</code>,
-because <code class="highlighter-rouge">foo</code> <em>moves into</em> the first call
+For example, if we call <code class="language-plaintext highlighter-rouge">foo.init_blob()</code> then we cannot later call <code class="language-plaintext highlighter-rouge">foo.get_blob()</code>,
+because <code class="language-plaintext highlighter-rouge">foo</code> <em>moves into</em> the first call
 and cannot be used again.
-As the <code class="highlighter-rouge">::capnp::data::Builder&lt;'a&gt;</code> type is in fact just a typedef for <code class="highlighter-rouge">&amp;'a mut [u8]</code>,
+As the <code class="language-plaintext highlighter-rouge">::capnp::data::Builder&lt;'a&gt;</code> type is in fact just a typedef for <code class="language-plaintext highlighter-rouge">&amp;'a mut [u8]</code>,
 it should be extra clear here why exclusivity is important to maintain.</p>
 
 <p>One thing we might do with these accessors is
-initialize the <code class="highlighter-rouge">Foo</code> and return a reference to its interior,
+initialize the <code class="language-plaintext highlighter-rouge">Foo</code> and return a reference to its interior,
 as does this function:</p>
 
-<div class="highlighter-rouge"><pre class="highlight"><code>fn init_and_return_slice&lt;'a&gt;(foo : foo::Builder&lt;'a&gt;) -&gt; &amp;'a mut [u8] {
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>fn init_and_return_slice&lt;'a&gt;(foo : foo::Builder&lt;'a&gt;) -&gt; &amp;'a mut [u8] {
     foo.init_blob(100).slice_mut(5, 10)
 }
-</code></pre>
-</div>
+</code></pre></div></div>
 
 <p>But what if we want to call this function and
-then afterwards call <code class="highlighter-rouge">set_x()</code>?
+then afterwards call <code class="language-plaintext highlighter-rouge">set_x()</code>?
 We might write something like this:</p>
 
-<div class="highlighter-rouge"><pre class="highlight"><code>fn do_some_things_wrong&lt;'a&gt;(mut foo : foo::Builder&lt;'a&gt;) {
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>fn do_some_things_wrong&lt;'a&gt;(mut foo : foo::Builder&lt;'a&gt;) {
    {
      let slice = init_and_return_slice(foo);
      slice[0] = 42;
    }
    foo.set_x(1.23);
 }
-</code></pre>
-</div>
+</code></pre></div></div>
 <p>but if we try to compile this function, we get the following typecheck error:</p>
 
-<div class="highlighter-rouge"><pre class="highlight"><code>main.rs:19:9: 19:12 error: use of moved value: `foo`
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>main.rs:19:9: 19:12 error: use of moved value: `foo`
 main.rs:19         foo.set_x(1.23);
                    ^~~
-</code></pre>
-</div>
+</code></pre></div></div>
 
 <p>The same pass-by-move semantics that were essential to preventing
 aliasing have now become a problem.
 We would like to be
-able to borrow <code class="highlighter-rouge">foo</code> for just the inner block,
+able to borrow <code class="language-plaintext highlighter-rouge">foo</code> for just the inner block,
 and then reuse it for the final line.
-If <code class="highlighter-rouge">foo</code> were a built-in mutable reference, such a <em>reborrow</em>
+If <code class="language-plaintext highlighter-rouge">foo</code> were a built-in mutable reference, such a <em>reborrow</em>
 would take place automatically, and everything would just work.
 Fortunately, we can make do with our custom mutable reference
 if we use the following following function,
 which is also included in the generated code:</p>
 
-<div class="highlighter-rouge"><pre class="highlight"><code>mod foo {
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mod foo {
   ...
   impl &lt;'a&gt; Builder &lt;'a&gt; {
     pub fn borrow&lt;'b&gt;(&amp;'b mut self) -&gt; Builder&lt;'b&gt; { ... }
   }
   ...
 }
-</code></pre>
-</div>
+</code></pre></div></div>
 
 <p>Using this, we can write our function as follows, and it successfully typechecks.</p>
 
-<div class="highlighter-rouge"><pre class="highlight"><code>fn do_some_things_right&lt;'a&gt;(mut foo : foo::Builder&lt;'a&gt;) {
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>fn do_some_things_right&lt;'a&gt;(mut foo : foo::Builder&lt;'a&gt;) {
     {
         let slice = init_and_return_slice(foo.borrow());
         slice[0] = 42
     }
     foo.set_x(1.23);
 }
-</code></pre>
-</div>
+</code></pre></div></div>
 
 <p>So it appears that the main inconviences of using our custom mutable references
 compared to built-in mutable references
-is that we need to add some calls to <code class="highlighter-rouge">.borrow()</code> and maybe add some <code class="highlighter-rouge">mut</code>’s to some bindings.
+is that we need to add some calls to <code class="language-plaintext highlighter-rouge">.borrow()</code> and maybe add some <code class="language-plaintext highlighter-rouge">mut</code>’s to some bindings.
 In fact, it seems to me that it would be possible for Rust to support
-a built-in <code class="highlighter-rouge">Reborrow</code> trait that could eliminate even these
+a built-in <code class="language-plaintext highlighter-rouge">Reborrow</code> trait that could eliminate even these
 inconveniences.</p>
 
-<p>Finally, in case you’re wondering why we prefer by-move <code class="highlighter-rouge">self</code> over <code class="highlighter-rouge">&amp;mut self</code>
+<p>Finally, in case you’re wondering why we prefer by-move <code class="language-plaintext highlighter-rouge">self</code> over <code class="language-plaintext highlighter-rouge">&amp;mut self</code>
 in our generated accessor methods, suppose that we also define this type in our schema:</p>
 
-<div class="highlighter-rouge"><pre class="highlight"><code>struct Bar {
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>struct Bar {
   oneFoo @0 : Foo;
 }
-</code></pre>
-</div>
+</code></pre></div></div>
 
-<p>Using by-move <code class="highlighter-rouge">self</code> allows us to return references deep in the interior of a <code class="highlighter-rouge">Bar</code>, like this:</p>
+<p>Using by-move <code class="language-plaintext highlighter-rouge">self</code> allows us to return references deep in the interior of a <code class="language-plaintext highlighter-rouge">Bar</code>, like this:</p>
 
-<div class="highlighter-rouge"><pre class="highlight"><code>fn init_field_and_return_slice&lt;'a&gt;(bar : bar::Builder&lt;'a&gt;) -&gt; &amp;'a mut [u8] {
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>fn init_field_and_return_slice&lt;'a&gt;(bar : bar::Builder&lt;'a&gt;) -&gt; &amp;'a mut [u8] {
     bar.init_one_foo().init_blob(100).slice_mut(5, 10)
 }
-</code></pre>
-</div>
+</code></pre></div></div>
 
-<p>If <code class="highlighter-rouge">init_blob()</code> instead took a <code class="highlighter-rouge">&amp;mut self</code> parameter, this function would fail to typecheck
-because the <code class="highlighter-rouge">foo::Builder</code> returned by <code class="highlighter-rouge">bar.init_one_foo()</code> does not live long enough.</p>
+<p>If <code class="language-plaintext highlighter-rouge">init_blob()</code> instead took a <code class="language-plaintext highlighter-rouge">&amp;mut self</code> parameter, this function would fail to typecheck
+because the <code class="language-plaintext highlighter-rouge">foo::Builder</code> returned by <code class="language-plaintext highlighter-rouge">bar.init_one_foo()</code> does not live long enough.</p>
 
-<h4 id="update-26-march-2018-a-nameupdatea">update (26 March 2018) <a name="update"></a></h4>
-<p>The <code class="highlighter-rouge">borrow()</code> method has been <a href="https://github.com/capnproto/capnproto-rust/pull/91/commits/aafa9514c7ff37b0702d45b42bd129d6e39e99c8">renamed</a>
-to <code class="highlighter-rouge">reborrow()</code>.</p>
+<h4 id="update-26-march-2018-">update (26 March 2018) <a name="update"></a></h4>
+<p>The <code class="language-plaintext highlighter-rouge">borrow()</code> method has been <a href="https://github.com/capnproto/capnproto-rust/pull/91/commits/aafa9514c7ff37b0702d45b42bd129d6e39e99c8">renamed</a>
+to <code class="language-plaintext highlighter-rouge">reborrow()</code>.</p>
 
 
 

@@ -28,15 +28,15 @@ foundation for asynchronous programming in Rust.</p>
 <p>At the level of types, the update is fairly
 straightforward.
 The main asynchronous building block in GJ is the struct
-<code class="highlighter-rouge">Promise&lt;T, E&gt;</code>, representing a <code class="highlighter-rouge">Result&lt;T, E&gt;</code> that might not
-be ready yet. To migrate to futures-rs, each <code class="highlighter-rouge">gj::Promise&lt;T,E&gt;</code> can be translated into
-a <code class="highlighter-rouge">Box&lt;futures::Future&lt;Item=T,Error=E&gt;&gt;</code>,
+<code class="language-plaintext highlighter-rouge">Promise&lt;T, E&gt;</code>, representing a <code class="language-plaintext highlighter-rouge">Result&lt;T, E&gt;</code> that might not
+be ready yet. To migrate to futures-rs, each <code class="language-plaintext highlighter-rouge">gj::Promise&lt;T,E&gt;</code> can be translated into
+a <code class="language-plaintext highlighter-rouge">Box&lt;futures::Future&lt;Item=T,Error=E&gt;&gt;</code>,
 and the high-level structure of a program usually does not need to change.</p>
 
-<p>Many nice properties derive from the fact that <code class="highlighter-rouge">Future</code> is a <em>trait</em>, not a struct,
-and does not need to be put in a <code class="highlighter-rouge">Box</code>.
-Concrete types implementing <code class="highlighter-rouge">Future</code> can be used in generics,
-making it possible for combinators like <code class="highlighter-rouge">.then()</code> and <code class="highlighter-rouge">.join()</code>
+<p>Many nice properties derive from the fact that <code class="language-plaintext highlighter-rouge">Future</code> is a <em>trait</em>, not a struct,
+and does not need to be put in a <code class="language-plaintext highlighter-rouge">Box</code>.
+Concrete types implementing <code class="language-plaintext highlighter-rouge">Future</code> can be used in generics,
+making it possible for combinators like <code class="language-plaintext highlighter-rouge">.then()</code> and <code class="language-plaintext highlighter-rouge">.join()</code>
 to avoid heap allocations
 and to avoid losing type information.
 In particular, the typechecker can know at compile time
@@ -50,7 +50,7 @@ For example, a Cap’n Proto method could invoke
 to distribute computation-heavy work among a pool of worker threads,
 or it could use one of the emerging asynchronous database drivers
 to make queries on a remote database, or it could do,
-well, anything that can be expressed in terms of the <code class="highlighter-rouge">Future</code> trait.
+well, anything that can be expressed in terms of the <code class="language-plaintext highlighter-rouge">Future</code> trait.
 As a quick demonstration, I have implemented a
 simple <a href="https://github.com/capnproto/capnproto-rust/tree/capnp-v0.8.17/capnp-rpc/examples/http-requests">example</a>
 that uses <a href="https://github.com/tokio-rs/tokio-curl">tokio-curl</a>
