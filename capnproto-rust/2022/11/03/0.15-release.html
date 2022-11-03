@@ -1,0 +1,257 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title> 0.15 -- GATs, CapabilityServerSet, and async packing </title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<link rel="stylesheet" href="/capnproto-rust/css/main.css" type="text/css" />
+<link rel="stylesheet" href="/capnproto-rust/css/syntax.css" type="text/css" />
+<link rel="shortcut icon" href="/capnproto-rust/favicon.png">
+</head>
+<body>
+<p>
+03 Nov 2022
+<p>
+
+<p>Today I am releasing version 0.15.0 of the Cap’n Proto crates:
+<a href="https://crates.io/crates/capnp"><code class="language-plaintext highlighter-rouge">capnp</code></a>,
+<a href="https://crates.io/crates/capnpc"><code class="language-plaintext highlighter-rouge">capnpc</code></a>,
+<a href="https://crates.io/crates/capnp-futures"><code class="language-plaintext highlighter-rouge">capnp-futures</code></a>,
+and <a href="https://crates.io/crates/capnp-rpc"><code class="language-plaintext highlighter-rouge">capnp-rpc</code></a>.
+It’s been a while – almost two years since the
+<a href="/capnproto-rust/2020/12/19/atomic-read-limiting.html">0.14.0 release</a>!
+So what’s new?</p>
+
+<h2 id="generic-associated-types">Generic Associated Types</h2>
+
+<p>Say we have a Cap’n Proto <a href="https://capnproto.org/language.html">schema</a>
+that defines a struct type <code class="language-plaintext highlighter-rouge">Foo</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>struct Foo {
+  id @0 :UInt64;
+  payload @1 :Data;
+}
+</code></pre></div></div>
+
+<p>When we pass this to the <code class="language-plaintext highlighter-rouge">capnpc-rust</code> code generator, it
+gives us declarations for <code class="language-plaintext highlighter-rouge">foo::Reader&lt;'a&gt;</code> and <code class="language-plaintext highlighter-rouge">foo::Builder&lt;'b&gt;</code> types.
+These types act as
+“<a href="/capnproto-rust/2014/12/27/custom-mutable-references.html">synthetic references</a>”,
+allowing us to
+read a capnp-encoded <code class="language-plaintext highlighter-rouge">Foo</code> value directly from a byte buffer without
+copying it into an intermediate structure.
+The <code class="language-plaintext highlighter-rouge">foo::Reader&lt;'a&gt;</code> type acts like an immutable (shared) reference <code class="language-plaintext highlighter-rouge">&amp;'a Foo</code>,
+and the <code class="language-plaintext highlighter-rouge">foo::Builder&lt;'a&gt;</code> type acts like a mutable reference <code class="language-plaintext highlighter-rouge">&amp;'a mut Foo</code>.</p>
+
+<p>Very well, but what if we now want to define
+a generic container type for a Cap’n Proto message,
+whose contents can be borrowed either immutably or mutably?
+Something like:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">MessageContainer</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span> <span class="k">where</span> <span class="n">T</span><span class="p">:</span> <span class="o">???</span> <span class="p">{</span>
+    <span class="n">message</span><span class="p">:</span> <span class="nn">capnp</span><span class="p">::</span><span class="nn">message</span><span class="p">::</span><span class="n">Builder</span><span class="o">&lt;</span><span class="nn">capnp</span><span class="p">::</span><span class="nn">message</span><span class="p">::</span><span class="n">HeapAllocator</span><span class="o">&gt;</span><span class="p">,</span>
+    <span class="n">marker</span><span class="p">:</span>  <span class="nn">core</span><span class="p">::</span><span class="nn">marker</span><span class="p">::</span><span class="n">PhantomData</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="k">impl</span> <span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span> <span class="n">MessageContainer</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span> <span class="k">where</span> <span class="n">T</span><span class="p">:</span> <span class="o">???</span> <span class="p">{</span>
+    <span class="k">fn</span> <span class="nf">get</span><span class="p">(</span><span class="o">&amp;</span><span class="k">self</span><span class="p">)</span> <span class="k">-&gt;</span> <span class="o">???</span> <span class="p">{</span> <span class="o">...</span> <span class="p">}</span>
+    <span class="k">fn</span> <span class="nf">get_mut</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span> <span class="k">self</span><span class="p">)</span> <span class="k">-&gt;</span> <span class="o">???</span> <span class="p">{</span> <span class="o">...</span> <span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>We want to be able to plug <code class="language-plaintext highlighter-rouge">Foo</code> (or any other Cap’n Proto struct type)
+in for <code class="language-plaintext highlighter-rouge">T</code> here. How do we fill in the <code class="language-plaintext highlighter-rouge">???</code> to make this work?</p>
+
+<p>The key is that, in addition to <code class="language-plaintext highlighter-rouge">foo::Reader</code> and <code class="language-plaintext highlighter-rouge">foo::Builder</code>,
+the <code class="language-plaintext highlighter-rouge">capnpc-rust</code> code generator also generates
+a <code class="language-plaintext highlighter-rouge">foo::Owned</code> type, meant as a stand in for <code class="language-plaintext highlighter-rouge">Foo</code> itself
+(which cannot be directly represented in Rust).
+The type <code class="language-plaintext highlighter-rouge">foo::Owned</code> has the following impl:</p>
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">impl</span> <span class="nn">capnp</span><span class="p">::</span><span class="nn">traits</span><span class="p">::</span><span class="nb">Owned</span> <span class="k">for</span> <span class="nn">foo</span><span class="p">::</span><span class="nb">Owned</span> <span class="p">{</span>
+    <span class="k">type</span> <span class="n">Reader</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span><span class="p">:</span> <span class="nn">foo</span><span class="p">::</span><span class="n">Reader</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span><span class="p">;</span>
+    <span class="k">type</span> <span class="n">Builder</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span><span class="p">:</span> <span class="nn">foo</span><span class="p">::</span><span class="n">Builder</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+<p>where <code class="language-plaintext highlighter-rouge">capnp::traits::Owned</code> is defined as</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">pub</span> <span class="k">trait</span> <span class="nb">Owned</span> <span class="p">{</span>
+    <span class="k">type</span> <span class="n">Reader</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span><span class="p">:</span> <span class="n">FromPointerReader</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="o">+</span> <span class="n">SetPointerBuilder</span><span class="p">;</span>
+    <span class="k">type</span> <span class="n">Builder</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span><span class="p">:</span> <span class="n">FromPointerBuilder</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>Then we can fill in <code class="language-plaintext highlighter-rouge">MessageContainer</code> as follows:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">MessageContainer</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span> <span class="k">where</span> <span class="n">T</span><span class="p">:</span> <span class="nn">capnp</span><span class="p">::</span><span class="nn">traits</span><span class="p">::</span><span class="nb">Owned</span> <span class="p">{</span>
+    <span class="n">message</span><span class="p">:</span> <span class="nn">capnp</span><span class="p">::</span><span class="nn">message</span><span class="p">::</span><span class="n">Builder</span><span class="o">&lt;</span><span class="nn">capnp</span><span class="p">::</span><span class="nn">message</span><span class="p">::</span><span class="n">HeapAllocator</span><span class="o">&gt;</span><span class="p">,</span>
+    <span class="n">marker</span><span class="p">:</span>  <span class="nn">core</span><span class="p">::</span><span class="nn">marker</span><span class="p">::</span><span class="n">PhantomData</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="k">impl</span> <span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span> <span class="n">MessageContainer</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span> <span class="k">where</span> <span class="n">T</span><span class="p">:</span> <span class="nn">capnp</span><span class="p">::</span><span class="nn">traits</span><span class="p">::</span><span class="nb">Owned</span> <span class="p">{</span>
+    <span class="k">fn</span> <span class="nf">get</span><span class="p">(</span><span class="o">&amp;</span><span class="k">self</span><span class="p">)</span> <span class="k">-&gt;</span> <span class="nn">T</span><span class="p">::</span><span class="n">Reader</span><span class="o">&lt;</span><span class="nv">'_</span><span class="o">&gt;</span> <span class="p">{</span> <span class="o">...</span> <span class="p">}</span>
+    <span class="k">fn</span> <span class="nf">get_mut</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span> <span class="k">self</span><span class="p">)</span> <span class="k">-&gt;</span> <span class="nn">T</span><span class="p">::</span><span class="n">Builder</span><span class="o">&lt;</span><span class="nv">'_</span><span class="o">&gt;</span> <span class="p">{</span> <span class="o">...</span> <span class="p">}</span>
+<span class="p">}</span>
+
+</code></pre></div></div>
+
+<p>Notice that the lifetime parameters on <code class="language-plaintext highlighter-rouge">Owned::Reader</code>
+and <code class="language-plaintext highlighter-rouge">Owned::Builder</code> make them
+<a href="https://blog.rust-lang.org/2022/10/28/gats-stabilization.html">generic associated types</a>,
+a newly stablized feature of Rust.</p>
+
+<h3 id="how-it-worked-before-gat">How it worked before GAT</h3>
+
+<p>In previous versions of capnproto-rust,
+we needed to hoist the lifetime parameter <code class="language-plaintext highlighter-rouge">&lt;'a&gt;</code> to the top
+of the declaration of <code class="language-plaintext highlighter-rouge">capnp::traits::Owned</code>, like this:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">pub</span> <span class="k">trait</span> <span class="nb">Owned</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="p">{</span>
+    <span class="k">type</span> <span class="n">Reader</span><span class="p">:</span> <span class="n">FromPointerReader</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="o">+</span> <span class="n">SetPointerBuilder</span><span class="p">;</span>
+    <span class="k">type</span> <span class="n">Builder</span><span class="p">:</span> <span class="n">FromPointerBuilder</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>Then, usages of the trait often needed higher rank trait bounds (i.e. <code class="language-plaintext highlighter-rouge">for&lt;'a&gt;...</code>),
+like this:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">MessageContainer</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span> <span class="k">where</span> <span class="n">T</span><span class="p">:</span> <span class="k">for</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="nn">capnp</span><span class="p">::</span><span class="nn">traits</span><span class="p">::</span><span class="nb">Owned</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="p">{</span>
+    <span class="n">message</span><span class="p">:</span> <span class="nn">capnp</span><span class="p">::</span><span class="nn">message</span><span class="p">::</span><span class="n">Builder</span><span class="o">&lt;</span><span class="nn">capnp</span><span class="p">::</span><span class="nn">message</span><span class="p">::</span><span class="n">HeapAllocator</span><span class="o">&gt;</span><span class="p">,</span>
+    <span class="n">marker</span><span class="p">:</span>  <span class="nn">core</span><span class="p">::</span><span class="nn">marker</span><span class="p">::</span><span class="n">PhantomData</span><span class="o">&lt;</span><span class="n">T</span><span class="o">&gt;</span><span class="p">,</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>The <code class="language-plaintext highlighter-rouge">for&lt;'a&gt;</code> syntax makes this trait look more complicated than it actually is,
+so it’s good that we are finally able to remove it!</p>
+
+<h2 id="capabilityserverset">CapabilityServerSet</h2>
+
+<p>Consider the following (over)simplified version of
+Sandstorm’s <a href="https://github.com/sandstorm-io/sandstorm/blob/d8be67ad5f703bb73f5da4e607cce07106c2a0f1/src/sandstorm/web-publishing.capnp#L24-L98">web publishing interface</a>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>interface BlobHandle {}
+
+interface BlobWriter {
+  write @0 (chunk: Data);
+  done @1 () -&gt; (handle :BlobHandle);
+}
+
+interface WebSitePublisher {
+  createBlob @0 () -&gt; (writer :BlobWriter);
+  set @1 (path :Text, blob :BlobHandle);
+}
+</code></pre></div></div>
+
+<p>To add some piece of content to a web site, an consumer of this API would do the following:</p>
+
+<ol>
+  <li>Call <code class="language-plaintext highlighter-rouge">createBlob()</code>.</li>
+  <li>Write to the blob using <code class="language-plaintext highlighter-rouge">BlobWriter.write()</code>.</li>
+  <li>Call <code class="language-plaintext highlighter-rouge">BlobWriter.done()</code> to get a <code class="language-plaintext highlighter-rouge">BlobHandle</code>.</li>
+  <li>Pass the <code class="language-plaintext highlighter-rouge">BlobHandle</code> to <code class="language-plaintext highlighter-rouge">WebSitePublisher.set()</code> for each path that should serve the content.</li>
+</ol>
+
+<p>This flow allows uploads to be streamed (step 2),
+and it allows a single piece of content to be pushed to multiple paths
+(step 4) without duplicated work.</p>
+
+<p>But how is the server supposed to implement <code class="language-plaintext highlighter-rouge">WebSitePublisher.set()</code>?
+The <code class="language-plaintext highlighter-rouge">BlobHandle</code> that it receives does not have any methods,
+so how can anything meaningful be done with it?</p>
+
+<p>Let’s first translate the question into Rust code.
+The <code class="language-plaintext highlighter-rouge">capnpc-rust</code>-generated code for the above schema will contain
+<code class="language-plaintext highlighter-rouge">Client</code> structs <code class="language-plaintext highlighter-rouge">blob_handle::Client</code>, <code class="language-plaintext highlighter-rouge">blob_writer::Client</code>,
+<code class="language-plaintext highlighter-rouge">web_site_publisher::Client</code>, and <code class="language-plaintext highlighter-rouge">Server</code> traits
+<code class="language-plaintext highlighter-rouge">blob_handle::Server</code>, <code class="language-plaintext highlighter-rouge">blob_writer::Server</code>, <code class="language-plaintext highlighter-rouge">web_site_publisher::Server</code>.
+The idea is that the server will implement the <code class="language-plaintext highlighter-rouge">Server</code> traits,
+with structs named perhaps <code class="language-plaintext highlighter-rouge">BlobHandleImpl</code>, <code class="language-plaintext highlighter-rouge">BlobWriterImpl</code>,
+and <code class="language-plaintext highlighter-rouge">WebSitePublisherImpl</code>, and then will pass these
+structs to RPC system via the <code class="language-plaintext highlighter-rouge">capnp_rpc::new_client()</code> function.
+For example, to create a <code class="language-plaintext highlighter-rouge">BlobHandle</code>, the implementation
+of <code class="language-plaintext highlighter-rouge">blob_writer::Server::done()</code> might do:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">let</span> <span class="n">blob_handle</span> <span class="o">=</span> <span class="nn">BlobHandleImpl</span><span class="p">::</span><span class="nf">new</span><span class="p">(</span><span class="n">blob_bytes</span><span class="p">);</span>
+<span class="k">let</span> <span class="n">client</span><span class="p">:</span> <span class="nn">blob_handle</span><span class="p">::</span><span class="n">Client</span> <span class="o">=</span> <span class="nn">capnp_rpc</span><span class="p">::</span><span class="nf">new_client</span><span class="p">(</span><span class="n">blob_handle</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>The issue is that once we call <code class="language-plaintext highlighter-rouge">capnp_rpc::new_client()</code> we no longer have
+access to the underlying <code class="language-plaintext highlighter-rouge">BlobHandleImpl</code> object,
+so by the time we are in <code class="language-plaintext highlighter-rouge">web_site_publisher::Server::set()</code>, we cannot
+get to the blob’s bytes.</p>
+
+<p>The solution is to use <code class="language-plaintext highlighter-rouge">CapabilityServerSet</code>,
+a feature that has existed in capnproto-c++
+for a long time, and as of today has been added to capnproto-rust.
+If a <code class="language-plaintext highlighter-rouge">blob_handle::Client</code> is created via <code class="language-plaintext highlighter-rouge">CapabilityServerSet::new_client()</code>,
+instead of <code class="language-plaintext highlighter-rouge">capnp_rpc::new_client()</code>,
+then its underlying <code class="language-plaintext highlighter-rouge">BlobHandleImpl</code> can later be retrieved
+via <code class="language-plaintext highlighter-rouge">CapabilityServerSet::get_local_server()</code>.</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">let</span> <span class="k">mut</span> <span class="n">set</span><span class="p">:</span> <span class="n">CapabilityServerSet</span><span class="o">&lt;</span><span class="n">BlobHandleImpl</span><span class="p">,</span><span class="nn">blob_handle</span><span class="p">::</span><span class="n">Client</span><span class="o">&gt;</span> <span class="o">=</span>
+    <span class="nn">CapabilityServerSet</span><span class="p">::</span><span class="nf">new</span><span class="p">();</span>
+<span class="o">...</span>
+<span class="k">let</span> <span class="n">blob_handle</span> <span class="o">=</span> <span class="nn">BlobHandleImpl</span><span class="p">::</span><span class="nf">new</span><span class="p">(</span><span class="n">blob_bytes</span><span class="p">);</span>
+<span class="k">let</span> <span class="n">client</span><span class="p">:</span> <span class="nn">blob_handle</span><span class="p">::</span><span class="n">Client</span> <span class="o">=</span> <span class="n">set</span><span class="nf">.new_client</span><span class="p">(</span><span class="n">blob_handle</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>Then the implementation of <code class="language-plaintext highlighter-rouge">web_site_publisher::Server</code> could do:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">if</span> <span class="k">let</span> <span class="nf">Some</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="o">=</span> <span class="n">set</span><span class="nf">.get_local_client</span><span class="p">(</span><span class="o">&amp;</span><span class="n">client</span><span class="p">)</span><span class="k">.await</span> <span class="p">{</span>
+    <span class="c1">// s has type `&amp;Rc&lt;RefCell&lt;BlobHandleImpl&gt;&gt;`</span>
+    <span class="o">...</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<h2 id="async-packing">Async Packing</h2>
+
+<p>Cap’n Proto’s
+<a href="https://capnproto.org/encoding.html#packing">packed codec</a>
+is a way to reduce message size in exchange for
+a minimal encoding/decoding cost.</p>
+
+<p>Until recently, capnproto-rust only support the packed codec
+via the synchronous <code class="language-plaintext highlighter-rouge">capnp::serialize_packed</code> API; if you
+wanted to pack your data over async I/O, you were out of luck.
+In particular, there was no way to use the RPC system with the packed codec.</p>
+
+<p>That has changed now, with
+<a href="https://github.com/capnproto/capnproto-rust/pull/296">the addition</a>
+of the <code class="language-plaintext highlighter-rouge">capnp_futures::serialize_packed</code> module.
+It includes standalone functions
+<code class="language-plaintext highlighter-rouge">serialize_packed::try_read_message()</code> and
+<code class="language-plaintext highlighter-rouge">serialize_packed::write_message()</code>, as well
+as wrappers</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">PackedRead</span><span class="o">&lt;</span><span class="n">R</span><span class="o">&gt;</span> <span class="k">where</span> <span class="n">R</span><span class="p">:</span> <span class="n">AsyncRead</span> <span class="p">{</span> <span class="o">...</span> <span class="p">}</span>
+</code></pre></div></div>
+<p>and</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">struct</span> <span class="n">PackedWrite</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span> <span class="k">where</span> <span class="n">W</span><span class="p">:</span> <span class="n">AsyncWrite</span> <span class="p">{</span> <span class="o">...</span> <span class="p">}</span>
+</code></pre></div></div>
+<p>which can be plugged into <code class="language-plaintext highlighter-rouge">capnp_rpc::twoparty::VatNetwork::new()</code>
+to enable packed RPC.</p>
+
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+
+<div>
+ <a href="https://www.github.com/capnproto/capnproto-rust">
+   capnproto-rust on github
+ </a>
+</div>
+
+<div>
+ <a href="/capnproto-rust/index.html">
+   more posts
+ </a>
+</div>
+
+<a href="/capnproto-rust/feed.xml">
+<img src="/capnproto-rust/assets/rss.png"
+     width="14"/>
+</a>
+
+
+</body>
