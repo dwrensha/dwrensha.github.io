@@ -3,8 +3,8 @@
         <channel>
                 <title>Cap&apos;n Proto for Rust</title>
                 <description>updates on capnproto-rust</description>
-                <link>http://localhost:4000</link>
-                <atom:link href="http://localhost:4000/feed.xml" rel="self" type="application/rss+xml" />
+                <link>http://dwrensha.github.io/capnproto-rust</link>
+                <atom:link href="http://dwrensha.github.io/capnproto-rust/feed.xml" rel="self" type="application/rss+xml" />
                 
                         <item>
                                 <title>0.15 -- GATs, CapabilityServerSet, and async packing</title>
@@ -228,8 +228,8 @@ to enable packed RPC.&lt;/p&gt;
 
 </description>
                                 <pubDate>Thu, 03 Nov 2022 00:00:00 -0400</pubDate>
-                                <link>http://localhost:4000/2022/11/03/0.15-release.html</link>
-                                <guid isPermaLink="true">http://localhost:4000/2022/11/03/0.15-release.html</guid>
+                                <link>http://dwrensha.github.io/capnproto-rust/2022/11/03/0.15-release.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2022/11/03/0.15-release.html</guid>
                         </item>
                 
                         <item>
@@ -278,8 +278,8 @@ with this change and
 for patiently iterating on it with me.&lt;/p&gt;
 </description>
                                 <pubDate>Sat, 19 Dec 2020 00:00:00 -0500</pubDate>
-                                <link>http://localhost:4000/2020/12/19/atomic-read-limiting.html</link>
-                                <guid isPermaLink="true">http://localhost:4000/2020/12/19/atomic-read-limiting.html</guid>
+                                <link>http://dwrensha.github.io/capnproto-rust/2020/12/19/atomic-read-limiting.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2020/12/19/atomic-read-limiting.html</guid>
                         </item>
                 
                         <item>
@@ -365,8 +365,8 @@ for submitting diffs that explored the
 design space.&lt;/p&gt;
 </description>
                                 <pubDate>Sat, 06 Jun 2020 00:00:00 -0400</pubDate>
-                                <link>http://localhost:4000/2020/06/06/no-std-support.html</link>
-                                <guid isPermaLink="true">http://localhost:4000/2020/06/06/no-std-support.html</guid>
+                                <link>http://dwrensha.github.io/capnproto-rust/2020/06/06/no-std-support.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2020/06/06/no-std-support.html</guid>
                         </item>
                 
                         <item>
@@ -443,8 +443,8 @@ $ cargo miri test
 
 </description>
                                 <pubDate>Sun, 19 Jan 2020 00:00:00 -0500</pubDate>
-                                <link>http://localhost:4000/2020/01/19/new-feature-to-allow-unaligned-buffers.html</link>
-                                <guid isPermaLink="true">http://localhost:4000/2020/01/19/new-feature-to-allow-unaligned-buffers.html</guid>
+                                <link>http://dwrensha.github.io/capnproto-rust/2020/01/19/new-feature-to-allow-unaligned-buffers.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2020/01/19/new-feature-to-allow-unaligned-buffers.html</guid>
                         </item>
                 
                         <item>
@@ -680,8 +680,8 @@ I encourage any readers of this post who have thoughts on the matter to comment
 on this &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/issues/101&quot;&gt;github issue&lt;/a&gt;.&lt;/p&gt;
 </description>
                                 <pubDate>Sat, 11 Jan 2020 00:00:00 -0500</pubDate>
-                                <link>http://localhost:4000/2020/01/11/unaligned-memory-access.html</link>
-                                <guid isPermaLink="true">http://localhost:4000/2020/01/11/unaligned-memory-access.html</guid>
+                                <link>http://dwrensha.github.io/capnproto-rust/2020/01/11/unaligned-memory-access.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2020/01/11/unaligned-memory-access.html</guid>
                         </item>
                 
                         <item>
@@ -712,8 +712,8 @@ exactly what you need!&lt;/p&gt;
 
 </description>
                                 <pubDate>Fri, 06 Dec 2019 00:00:00 -0500</pubDate>
-                                <link>http://localhost:4000/2019/12/06/async-await.html</link>
-                                <guid isPermaLink="true">http://localhost:4000/2019/12/06/async-await.html</guid>
+                                <link>http://dwrensha.github.io/capnproto-rust/2019/12/06/async-await.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2019/12/06/async-await.html</guid>
                         </item>
                 
                         <item>
@@ -782,8 +782,8 @@ that I later added to the capnproto-rust test suite to cover the new functionali
 
 </description>
                                 <pubDate>Mon, 27 Feb 2017 00:00:00 -0500</pubDate>
-                                <link>http://localhost:4000/2017/02/27/cargo-fuzz.html</link>
-                                <guid isPermaLink="true">http://localhost:4000/2017/02/27/cargo-fuzz.html</guid>
+                                <link>http://dwrensha.github.io/capnproto-rust/2017/02/27/cargo-fuzz.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2017/02/27/cargo-fuzz.html</guid>
                         </item>
                 
                         <item>
@@ -839,8 +839,8 @@ Join me for discussion at #sandstorm on freenode IRC or at the
 
 </description>
                                 <pubDate>Wed, 04 Jan 2017 00:00:00 -0500</pubDate>
-                                <link>http://localhost:4000/2017/01/04/rpc-futures.html</link>
-                                <guid isPermaLink="true">http://localhost:4000/2017/01/04/rpc-futures.html</guid>
+                                <link>http://dwrensha.github.io/capnproto-rust/2017/01/04/rpc-futures.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2017/01/04/rpc-futures.html</guid>
                         </item>
                 
                         <item>
@@ -1014,8 +1014,8 @@ on the heap. Generator-based async-I/O seems like an all-around win!&lt;/p&gt;
 &lt;p&gt;&lt;a href=&quot;https://www.reddit.com/r/rust/comments/4li9v2/generators_are_the_missing_piece_for_async/&quot;&gt;(discussion on /r/rust)&lt;/a&gt;&lt;/p&gt;
 </description>
                                 <pubDate>Sat, 28 May 2016 00:00:00 -0400</pubDate>
-                                <link>http://localhost:4000/2016/05/28/async-generators.html</link>
-                                <guid isPermaLink="true">http://localhost:4000/2016/05/28/async-generators.html</guid>
+                                <link>http://dwrensha.github.io/capnproto-rust/2016/05/28/async-generators.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2016/05/28/async-generators.html</guid>
                         </item>
                 
                         <item>
@@ -1061,8 +1061,8 @@ is a good match for the completion-based interfaces of gjio’s
 
 </description>
                                 <pubDate>Sun, 24 Apr 2016 00:00:00 -0400</pubDate>
-                                <link>http://localhost:4000/2016/04/24/gj-io-split.html</link>
-                                <guid isPermaLink="true">http://localhost:4000/2016/04/24/gj-io-split.html</guid>
+                                <link>http://dwrensha.github.io/capnproto-rust/2016/04/24/gj-io-split.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2016/04/24/gj-io-split.html</guid>
                         </item>
                 
         </channel>
