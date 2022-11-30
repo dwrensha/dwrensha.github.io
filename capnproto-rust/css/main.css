@@ -1,12 +1,10 @@
 body { font-family: Helvetica, Sans, Arial;
-        font-size: 12pt;
         margin-left: auto;
         margin-right: auto;
         width: 600px;
      }
 
 .highlight {
-    font-size: 11pt;
     overflow: scroll;
 }
 
