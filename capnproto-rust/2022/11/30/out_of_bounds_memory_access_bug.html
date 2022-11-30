@@ -1,0 +1,423 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title> out-of-bounds memory access bug </title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<link rel="stylesheet" href="/capnproto-rust/css/main.css" type="text/css" />
+<link rel="stylesheet" href="/capnproto-rust/css/syntax.css" type="text/css" />
+<link rel="shortcut icon" href="/capnproto-rust/favicon.png">
+</head>
+<body>
+<h1>
+out-of-bounds memory access bug
+</h1>
+
+<p>
+30 Nov 2022
+<p>
+
+<p>Recent fuzz testing has uncovered a bug in
+<a href="https://github.com/capnproto/capnproto-rust">capnproto-rust</a>
+and
+<a href="https://github.com/capnproto/capnproto">capnproto-c++</a>
+that allows out-of-bounds memory to be accessed in certain situations.</p>
+
+<p>If a message consumer expects data
+of type “list of pointers”,
+and if the consumer performs certain specific actions on such data,
+then a message producer can
+cause the consumer to read out-of-bounds memory.
+This could trigger a process crash in the consumer,
+or in some cases could allow exfiltration of private in-memory data.</p>
+
+<p>See the <a href="https://github.com/capnproto/capnproto/tree/master/security-advisories/2022-11-30-0-pointer-list-bounds.md">advisory</a>
+on the main Cap’n Proto repo for a succinct description of
+the exact circumstances in which the problem can arise,
+and for information about how to update the Cap’n Proto C++ library.</p>
+
+<p>If you use the <a href="https://crates.io/crates/capnp"><code class="language-plaintext highlighter-rouge">capnp</code></a> Rust crate,
+you are advised to update to a version that includes the fix —
+currently either <code class="language-plaintext highlighter-rouge">0.15.2</code>, <code class="language-plaintext highlighter-rouge">0.14.11</code>, or <code class="language-plaintext highlighter-rouge">0.13.7</code>.</p>
+
+<h2 id="timeline">Timeline</h2>
+
+<ul>
+  <li><strong>March 2013</strong>: Cap’n Proto is implemented in C++ and early versions already contain the bug.</li>
+  <li>
+    <p><strong>July 2013</strong>: The initial capnproto-rust implementation copies the C++ implementation, bug and all.</p>
+  </li>
+  <li>
+    <p><strong>February 2017</strong>: Two <code class="language-plaintext highlighter-rouge">cargo fuzz</code> test targets
+(named
+<a href="https://github.com/capnproto/capnproto-rust/commit/28be3364441ffd0fbfc3ecb2bf9800bb5fcad3a9"><code class="language-plaintext highlighter-rouge">canonicalize</code></a> and
+<a href="https://github.com/capnproto/capnproto-rust/commit/55a38058d69ffdaeb0204e8b91ef1d01f86a19f8"><code class="language-plaintext highlighter-rouge">test_all_types</code></a>)
+are added
+to the capnproto-rust repo. Initial findings are reported in
+<a href="https://dwrensha.github.io/capnproto-rust/2017/02/27/cargo-fuzz.html">a blog post</a>.
+The out-of-bounds bug is not found, due to insufficient coverage.</p>
+  </li>
+  <li>
+    <p><strong>11 November 2022</strong>: The <code class="language-plaintext highlighter-rouge">test_all_types</code> fuzz test target is
+<a href="https://github.com/capnproto/capnproto-rust/commit/ab575a0c5841104cb726a018951e5105797414e3">expanded</a>
+to achieve additional coverage.</p>
+  </li>
+  <li>
+    <p><strong>(later) 11 November 2022</strong>: A several-hour run of <code class="language-plaintext highlighter-rouge">cargo fuzz -j 25</code> triggers an
+Address Sanitizer error.</p>
+  </li>
+  <li>
+    <p><strong>12 November 2022</strong>: The bug is diagnosed and determined to also apply to capnproto-c++. A report is sent to <a href="mailto:kenton@cloudflare.com">kenton@cloudflare.com</a>.</p>
+  </li>
+  <li><strong>30 November 2022</strong>: Fixes are released.</li>
+</ul>
+
+<h2 id="technical-explanation">Technical Explanation</h2>
+
+<p>The bug arises from an interaction between a core feature of Cap’n Proto
+(type-agnostic copying) and an optimization (list pointer munging)
+which failed to correctly take that feature into account.</p>
+
+<h3 id="capn-proto-core-feature-type-agnostic-copying">Cap’n Proto core feature: type-agnostic copying</h3>
+
+<p>Types of Cap’n Proto messages are defined
+in schema files, as described
+in the <a href="https://capnproto.org/language.html">language reference</a>.
+To be given meaning,
+a Cap’n Proto message must be ascribed
+a type.</p>
+
+<p>Nevertheless,
+many operations on Cap’n Proto messages
+can proceed without reference to these high-level types.
+At a low level, Cap’n Proto messages have
+a simple self-describing
+structure, divided into two components:
+primitive data and pointers.</p>
+
+<p>Primitive data is flat and opaque.
+It consists of bytes that can
+be interpreted as scalar values of type
+<code class="language-plaintext highlighter-rouge">UInt8</code>, <code class="language-plaintext highlighter-rouge">UInt16</code>, <code class="language-plaintext highlighter-rouge">UInt32</code>, <code class="language-plaintext highlighter-rouge">UInt32</code>, <code class="language-plaintext highlighter-rouge">UInt64</code>,
+<code class="language-plaintext highlighter-rouge">Int8</code>, <code class="language-plaintext highlighter-rouge">Int16</code>, <code class="language-plaintext highlighter-rouge">Int32</code>, <code class="language-plaintext highlighter-rouge">Int32</code>, <code class="language-plaintext highlighter-rouge">Int64</code>,
+<code class="language-plaintext highlighter-rouge">Float32</code>, or <code class="language-plaintext highlighter-rouge">Float64</code>.
+The interpretation as scalar values is
+<em>not</em> a self-describing part of a message;
+it requires the message to be ascribed
+a high-level type via a schema.</p>
+
+<p>Pointers introduce indirection, pointing
+to either structs or lists
+(or capabilities in the
+<a href="https://capnproto.org/rpc.html">RPC</a> system).
+A <a href="https://capnproto.org/encoding.html#structs">struct</a>
+is a container with a data section
+holding some amount of primitive data,
+and a pointer section holding some number of pointers.
+A <a href="https://capnproto.org/encoding.html#lists">list</a>
+is a sequence of elements, each containing
+some amount of primitive data and some number of pointers.
+For both struct and list pointers,
+the pointer itself describes
+the size of the contents, i.e. number of primitive
+data bytes and number of pointers.</p>
+
+<p><img src="/capnproto-rust/assets/message-structure.png" width="600" /></p>
+
+<p>The above diagram shows the structure of an example 4-word (32-byte) message.
+A struct pointer points to a 1-word data section, containing
+8 bytes of primitive data, and a 1-word pointer section,
+containing a list pointer. The list pointer points
+to an 8-element list of bytes (also primitive data).</p>
+
+<p>This low-level structure provides enough information on its own
+to support traversal, copying,
+and even <a href="https://capnproto.org/encoding.html#canonicalization">canonicalization</a>
+of Cap’n Proto messages,
+without reference to high-level schema information.</p>
+
+<p>Let’s look at some code in a concrete example where
+copying in particular comes into play.
+Consider the following schema.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>struct Record {
+   x @0 :Int32;
+   y @1 :Int32;
+   comments @2 :Text;
+}
+
+struct Input {
+   record @0 :Record;
+   tags   @1 :List(Text);
+
+   # ... plus other Input-specific fields
+}
+
+struct Output {
+   record @0 :Record;
+   tags   @1 :List(Text);
+
+   # ... plus other Output-specific fields
+}
+</code></pre></div></div>
+
+<p>Imagine a setup where Alice sends an <code class="language-plaintext highlighter-rouge">Input</code> to Bob,
+who does some processing, and then sends
+an <code class="language-plaintext highlighter-rouge">Output</code> to Carol.</p>
+
+<p><img src="/capnproto-rust/assets/alice-bob-carol.png" width="600" /></p>
+
+<p>Let’s say that part of Bob’s processing is to forward the
+<code class="language-plaintext highlighter-rouge">record</code> and <code class="language-plaintext highlighter-rouge">tags</code> fields of the <code class="language-plaintext highlighter-rouge">Input</code> into the
+corresponding <code class="language-plaintext highlighter-rouge">record</code> and <code class="language-plaintext highlighter-rouge">tag</code> fields of the <code class="language-plaintext highlighter-rouge">Output</code>.</p>
+
+<p>The Cap’n Proto schema compiler generates Rust code for Bob
+including something like the following:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">pub</span> <span class="k">mod</span> <span class="n">input</span> <span class="p">{</span>
+  <span class="k">pub</span> <span class="k">struct</span> <span class="n">Reader</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="p">{</span> <span class="o">...</span> <span class="p">}</span>
+
+  <span class="k">impl</span> <span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="n">Reader</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="p">{</span>
+    <span class="nf">get_record</span><span class="p">(</span><span class="k">self</span><span class="p">)</span> <span class="k">-&gt;</span> <span class="nb">Result</span><span class="o">&lt;</span><span class="nn">record</span><span class="p">::</span><span class="n">Reader</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">Error</span><span class="o">&gt;</span> <span class="p">{</span> <span class="o">...</span> <span class="p">}</span>
+
+    <span class="nf">get_tags</span><span class="p">(</span><span class="k">self</span><span class="p">)</span>
+      <span class="k">-&gt;</span> <span class="nb">Result</span><span class="o">&lt;</span><span class="nn">capnp</span><span class="p">::</span><span class="nn">text_list</span><span class="p">::</span><span class="n">Reader</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">Error</span><span class="o">&gt;</span> <span class="p">{</span> <span class="o">...</span> <span class="p">}</span>
+    <span class="o">...</span>
+  <span class="p">}</span>
+  <span class="o">...</span>
+<span class="p">}</span>
+
+<span class="k">pub</span> <span class="k">mod</span> <span class="n">output</span> <span class="p">{</span>
+  <span class="k">pub</span> <span class="k">struct</span> <span class="n">Builder</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="p">{</span> <span class="o">...</span> <span class="p">}</span>
+
+  <span class="k">impl</span> <span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="n">Builder</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="p">{</span>
+    <span class="nf">set_record</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span> <span class="k">self</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nn">record</span><span class="p">::</span><span class="n">Reader</span><span class="o">&lt;</span><span class="nv">'_</span><span class="o">&gt;</span><span class="p">)</span>
+      <span class="k">-&gt;</span> <span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span> <span class="n">Error</span><span class="o">&gt;</span> <span class="p">{</span> <span class="o">...</span> <span class="p">}</span>
+
+    <span class="nf">set_tags</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span> <span class="k">self</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nn">capnp</span><span class="p">::</span><span class="nn">text_list</span><span class="p">::</span><span class="n">Reader</span><span class="o">&lt;</span><span class="nv">'_</span><span class="o">&gt;</span><span class="p">)</span>
+      <span class="k">-&gt;</span> <span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span> <span class="n">Error</span><span class="o">&gt;</span> <span class="p">{</span> <span class="o">...</span> <span class="p">}</span>
+    <span class="o">...</span>
+  <span class="p">}</span>
+  <span class="o">...</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>And now Bob, to copy the <code class="language-plaintext highlighter-rouge">record</code> and <code class="language-plaintext highlighter-rouge">tags</code> fields
+from the <code class="language-plaintext highlighter-rouge">Input</code> to the <code class="language-plaintext highlighter-rouge">Output</code>,
+will write some lines of Rust code like this:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">output</span><span class="nf">.set_record</span><span class="p">(</span><span class="n">input</span><span class="nf">.get_record</span><span class="p">()</span><span class="o">?</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+<span class="n">output</span><span class="nf">.set_tags</span><span class="p">(</span><span class="n">input</span><span class="nf">.get_tags</span><span class="p">()</span><span class="o">?</span><span class="p">)</span><span class="o">?</span><span class="p">;</span>
+</code></pre></div></div>
+
+<p>So far, this all may seem rather straightforward and boilerplatish,
+but there’s an important thing happening behind the scenes.
+Namely, the implementations of <code class="language-plaintext highlighter-rouge">set_record()</code>
+and <code class="language-plaintext highlighter-rouge">set_tags()</code> delegate to <em>type-agnostic</em>
+copying functions, which operate only on the
+low-level structure of the underlying messages.
+That is, even though we know the high-level
+types of the values that are being copied,
+we ignore that information when we actually perform the copying.</p>
+
+<p>There two primary advantages to this approach:</p>
+
+<ol>
+  <li>Code bloat is minimized. Rather than generating separate
+  copying logic for each setter method of a struct or list field,
+  we instead always delegate to the same type-agnostic
+  <code class="language-plaintext highlighter-rouge">set_struct_pointer()</code> and <code class="language-plaintext highlighter-rouge">set_list_pointer()</code> functions.</li>
+  <li><a href="https://capnproto.org/language.html#evolving-your-protocol">Protocol evolution</a>
+  is automatically supported. If Alice starts using a newer version of the schema,
+  Bob will faithfully forward any new fields to Carol,
+  even if Bob does not understand the meaning of those fields.</li>
+</ol>
+
+<p>To elaborate on (2), suppose that the schema evolves to:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>struct Record {
+   x @0 :Int32;
+   y @1 :Int32;
+   comments @2 :Text;
+   key @3 :UInt64; # new field
+}
+
+Struct Tag {
+   name @0 :Text;
+   weight @1 :Float32;
+}
+
+struct Input {
+   record @0 :Record;
+   tags   @1 :List(Tag); # upgraded from List(Text)
+
+   # ... plus other Input-specific fields
+}
+
+struct Output {
+   record @0 :Record;
+   tags   @1 :List(Tag); # upgraded from List(Text)
+
+   # ... plus other Output-specific fields
+}
+</code></pre></div></div>
+<p>Here we’ve added a <code class="language-plaintext highlighter-rouge">key</code> field to <code class="language-plaintext highlighter-rouge">Record</code>,
+and we’ve upgraded the <code class="language-plaintext highlighter-rouge">tags</code> field from
+<code class="language-plaintext highlighter-rouge">List(Text)</code> to <code class="language-plaintext highlighter-rouge">List(Tag)</code>, where <code class="language-plaintext highlighter-rouge">Tag</code> is
+a newly-added struct.
+From an encoding perspective,
+these schema evolutions mean that:</p>
+<ol>
+  <li>A value of type <code class="language-plaintext highlighter-rouge">Record</code> will now have an additional 8 bytes of primitive
+data in its data section.</li>
+  <li>The <code class="language-plaintext highlighter-rouge">tags</code> field will now encoded as a list of structs,
+rather than a list of list of bytes.</li>
+</ol>
+
+<p>The point is that the <code class="language-plaintext highlighter-rouge">set_struct_pointer()</code> and <code class="language-plaintext highlighter-rouge">set_list_pointer()</code>
+functions automatically deal with these changes,
+so Bob does not need to know about the schema evolution;
+his existing code already faithfully forwards the new data to Carol.</p>
+
+<h3 id="bad-optimization-munged-list-pointers">Bad optimization: munged list pointers</h3>
+
+<p>So far so good.
+To understand the bug, we’ll need to dig deeper
+into how capnproto-rust internally represents lists.
+The <code class="language-plaintext highlighter-rouge">text_list::Reader&lt;'a&gt;</code> Rust struct returned by
+the <code class="language-plaintext highlighter-rouge">get_tags()</code> method above is a shallow wrapper
+around a Rust struct called <code class="language-plaintext highlighter-rouge">ListReader</code>:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nd">#[derive(Clone,</span> <span class="nd">Copy)]</span>
+<span class="k">pub</span> <span class="k">struct</span> <span class="n">ListReader</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="p">{</span>
+    <span class="c1">// Mediated access to the rest of the message's bytes.</span>
+    <span class="n">arena</span><span class="p">:</span> <span class="o">&amp;</span><span class="nv">'a</span> <span class="k">dyn</span> <span class="n">ReaderArena</span><span class="p">,</span>
+
+    <span class="c1">// Which segment from the arena this list lives on.</span>
+    <span class="n">segment_id</span><span class="p">:</span> <span class="nb">u32</span><span class="p">,</span>
+
+    <span class="c1">// Handles to any capabilities in the message.</span>
+    <span class="n">cap_table</span><span class="p">:</span> <span class="n">CapTableReader</span><span class="p">,</span>
+
+    <span class="c1">// Pointer to the start of the first element in the list.</span>
+    <span class="c1">// (Except when "munged". See below.)</span>
+    <span class="n">ptr</span><span class="p">:</span> <span class="o">*</span><span class="k">const</span> <span class="nb">u8</span><span class="p">,</span>
+
+    <span class="c1">// Number of elements in the list.</span>
+    <span class="n">element_count</span><span class="p">:</span> <span class="n">ElementCount32</span><span class="p">,</span>
+
+    <span class="c1">// Number of bits per list element.</span>
+    <span class="n">step</span><span class="p">:</span> <span class="n">BitCount32</span><span class="p">,</span>
+
+    <span class="c1">// The size of each element of the list.</span>
+    <span class="n">element_size</span><span class="p">:</span> <span class="n">ElementSize</span><span class="p">,</span>
+
+    <span class="c1">// If element_size is InlineComposite, then this is the</span>
+    <span class="c1">// number of bits in each struct element's data section.</span>
+    <span class="c1">// Otherwise, it is zero.</span>
+    <span class="n">struct_data_size</span><span class="p">:</span> <span class="n">BitCount32</span><span class="p">,</span>
+
+    <span class="c1">// If element_size is InlineComposite, then this is the</span>
+    <span class="c1">// number of pointers in each struct element's pointer section.</span>
+    <span class="c1">// Otherwise, it is zero.</span>
+    <span class="n">struct_pointer_count</span><span class="p">:</span> <span class="n">WirePointerCount16</span><span class="p">,</span>
+
+    <span class="c1">// How many more pointers we are allowed to follow before</span>
+    <span class="c1">// returning an error.</span>
+    <span class="n">nesting_limit</span><span class="p">:</span> <span class="nb">i32</span><span class="p">,</span>
+<span class="p">}</span>
+</code></pre></div></div>
+<p>There’s a lot of bookkeeping happening here.
+The main idea is that we have pointer to the first element of the list,
+plus information about the size of each element.</p>
+
+<p>To retrieve the <code class="language-plaintext highlighter-rouge">n</code>th element from <code class="language-plaintext highlighter-rouge">tl: text_list::Reader&lt;'a&gt;</code>,
+we do <code class="language-plaintext highlighter-rouge">tl.get(n)?</code>, which delegates
+to the following <code class="language-plaintext highlighter-rouge">ListReader</code> method:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">impl</span> <span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="n">ListReader</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="p">{</span>
+  <span class="k">pub</span> <span class="k">fn</span> <span class="nf">get_pointer_element</span><span class="p">(</span><span class="k">self</span><span class="p">,</span> <span class="n">index</span><span class="p">:</span> <span class="n">ElementCount32</span><span class="p">)</span>
+    <span class="k">-&gt;</span> <span class="n">PointerReader</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span>
+  <span class="p">{</span> <span class="o">...</span> <span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>The logic in this method is roughly:
+start at <code class="language-plaintext highlighter-rouge">self.ptr</code> and take an offset of <code class="language-plaintext highlighter-rouge">self.step / 8 * index</code> bytes.
+For a <code class="language-plaintext highlighter-rouge">text_list::Reader&lt;'a&gt;</code>, it’s usually the
+case that its <code class="language-plaintext highlighter-rouge">ListReader</code> has <code class="language-plaintext highlighter-rouge">element_size == Pointer</code>
+and <code class="language-plaintext highlighter-rouge">step == 64</code> (i.e. one word),
+so in that case, <code class="language-plaintext highlighter-rouge">get_pointer_element(index)</code> returns the pointer
+that at an offset of <code class="language-plaintext highlighter-rouge">8 * index</code> from the front of the list.</p>
+
+<p>But what happens if
+the underlying list is actually a struct list
+(i.e. <code class="language-plaintext highlighter-rouge">element_size == InlineComposite</code>)?
+As we saw above, that can happen as a consequence of protocol
+evolution, if Alice constructs a <code class="language-plaintext highlighter-rouge">List(Tag)</code> but Bob still
+expects to read it as a <code class="language-plaintext highlighter-rouge">List(Text)</code>.</p>
+
+<p>To deal with that case, we need to also take into account
+<code class="language-plaintext highlighter-rouge">self.struct_data_size</code>. The pointer that we want
+will be the <em>first</em> pointer in the pointer section of the struct,
+but there may be a nonempty data section that we need to skip first.
+So the logic in <code class="language-plaintext highlighter-rouge">get_pointer_element()</code> needs to be:
+start at <code class="language-plaintext highlighter-rouge">self.ptr</code> and take an offset of
+<code class="language-plaintext highlighter-rouge">self.step / 8 * index + self.struct_data_size / 8</code> bytes.</p>
+
+<p>And here we might be tempted to make an optimization.
+Notice that the same <code class="language-plaintext highlighter-rouge">self.struct_data_size / 8</code> term
+gets added on <em>every</em> call of <code class="language-plaintext highlighter-rouge">get_pointer_element()</code>.
+What if we added that value just once, when we first
+constructed the <code class="language-plaintext highlighter-rouge">ListReader</code>? Then maybe we could eliminate
+some instructions and squeeze out a few more bits of performance.</p>
+
+<p>The original Cap’n Proto implementation included this optimization,
+where <code class="language-plaintext highlighter-rouge">ListReader.ptr</code> would be “munged” by an offset
+corresponding to the struct data size.
+As long as all access to the list
+goes through the <code class="language-plaintext highlighter-rouge">get_pointer_element()</code> method,
+the optimization works without any problems.</p>
+
+<p>Type-agnostic copying, however, does <em>not</em> go through that method.
+We hit trouble when we pass a <code class="language-plaintext highlighter-rouge">ListReader</code> with
+such a munged pointer into the <code class="language-plaintext highlighter-rouge">set_list_pointer()</code> function
+described in the previous section.
+That function has no way to know where a list pointer has been munged or not,
+and expects <code class="language-plaintext highlighter-rouge">ListReader.ptr</code> to always point to the <em>start</em>
+of the first element of the list.
+Therefore, when it receives a munged pointer,
+it will start reading from it at an offset of <code class="language-plaintext highlighter-rouge">struct_data_size</code>
+past where it should.
+If the end of the message segment is within
+that offset, then <code class="language-plaintext highlighter-rouge">set_list_pointer()</code> can read out-of-bounds data,
+from beyond the end of the message.</p>
+
+<h3 id="fixing-the-bug">Fixing the bug</h3>
+
+<p>The bug is fixed by commit <a href="https://github.com/capnproto/capnproto-rust/commit/e7ee0ef892c354b0390ed6e38d3ca634308897c5">e7ee0ef892c354b0390ed6e38d3ca634308897c5</a>,
+which eliminates the bad optimization.</p>
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+
+<div>
+ <a href="https://www.github.com/capnproto/capnproto-rust">
+   capnproto-rust on github
+ </a>
+</div>
+
+<div>
+ <a href="/capnproto-rust/index.html">
+   more posts
+ </a>
+</div>
+
+<a href="/capnproto-rust/feed.xml">
+<img src="/capnproto-rust/assets/rss.png"
+     width="14"/>
+</a>
+
+
+</body>
