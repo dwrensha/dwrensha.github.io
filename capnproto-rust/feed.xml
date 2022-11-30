@@ -60,7 +60,8 @@ Address Sanitizer error.&lt;/p&gt;
   &lt;li&gt;
     &lt;p&gt;&lt;strong&gt;12 November 2022&lt;/strong&gt;: The bug is diagnosed and determined to also apply to capnproto-c++. A report is sent to &lt;a href=&quot;mailto:kenton@cloudflare.com&quot;&gt;kenton@cloudflare.com&lt;/a&gt;.&lt;/p&gt;
   &lt;/li&gt;
-  &lt;li&gt;&lt;strong&gt;30 November 2022&lt;/strong&gt;: Fixes are released.&lt;/li&gt;
+  &lt;li&gt;&lt;strong&gt;30 November 2022&lt;/strong&gt;: Fixes are released. Security advisory is published as
+&lt;a href=&quot;https://github.com/capnproto/capnproto/security/advisories/GHSA-qqff-4vw4-f6hx&quot;&gt;CVE-2022-46149&lt;/a&gt;.&lt;/li&gt;
 &lt;/ul&gt;
 
 &lt;h2 id=&quot;technical-explanation&quot;&gt;Technical Explanation&lt;/h2&gt;
