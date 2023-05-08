@@ -1,0 +1,602 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title> run-time reflection </title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<link rel="stylesheet" href="/capnproto-rust/css/main.css" type="text/css" />
+<link rel="stylesheet" href="/capnproto-rust/css/syntax.css" type="text/css" />
+<link rel="shortcut icon" href="/capnproto-rust/favicon.png">
+</head>
+<body>
+<h1>
+run-time reflection
+</h1>
+
+<p>
+08 May 2023
+<p>
+
+<p>Version 0.17 of
+<a href="https://github.com/capnproto/capnproto-rust">capnproto-rust</a>
+is now available!
+It introduces support for dynamically typed values,
+enabling a kind of run-time reflection.
+The new functionality lets you write
+ordinary Rust code to
+iterate through the fields of any Cap’n Proto
+<a href="https://capnproto.org/language.html#structs">struct</a>,
+with access to  names, types, and
+<a href="https://capnproto.org/language.html#annotations">annotations</a>.
+Previously, you would have needed to use code generation or procedural
+macros to achieve such things.</p>
+
+<p>This blog post will show two particular applications of reflection:
+debug printing and generating random structured data.
+The former has until now been sorely missing in capnproto-rust,
+and the latter can yield (pretty?) pictures like this:</p>
+
+<p><img width="350" src="/capnproto-rust/assets/shapes-000.svg" alt="colorful randomly generated shapes" /></p>
+
+<p>The post will also look at some details
+of how the implementation of reflection works.</p>
+
+<h2 id="debug-printing">Debug Printing</h2>
+
+<p>A major motivation for adding reflection to capnproto-rust
+is to implement the <a href="https://doc.rust-lang.org/core/fmt/trait.Debug.html"><code class="language-plaintext highlighter-rouge">Debug</code></a>
+trait for all Cap’n Proto structs.
+Because the data for such structs lives behind
+a layer of indirection
+(i.e. <a href="/capnproto-rust/2014/12/27/custom-mutable-references.html">synthetic references</a>),
+merely adding a <code class="language-plaintext highlighter-rouge">#[derive(Debug)]</code> annotation to the type declarations
+would not be sufficient to print any useful information.
+Instead, we need to add custom <code class="language-plaintext highlighter-rouge">Debug</code> implementations
+that read the underlying data.</p>
+
+<p>One way to achieve that would be to generate,
+for each struct, separate implementation logic
+which iterates through the struct fields and prints their values in sequence.
+That’s the approach proposed by <a href="https://github.com/as-com">@as-com</a>
+in pull request <a href="https://github.com/capnproto/capnproto-rust/pull/390">#390</a>.</p>
+
+<p>However, now that we have reflection, we can avoid generating so much single-purpose
+code. Instead, our <code class="language-plaintext highlighter-rouge">Debug</code> implementation for each struct immediately
+delegates to a shared implementation that knows how to deal with
+<em>any</em> Cap’n Proto struct type. See
+<a href="https://github.com/capnproto/capnproto-rust/blob/f7c86befe11b27f33c2a45957d402abff2b9e347/capnp/src/stringify.rs">stringify.rs</a>
+if you are curious about what the code looks like.</p>
+
+<p>Using reflection in this way does have a (small)
+run-time cost, as it requires
+more branching than the static approach
+implemented in <a href="https://github.com/capnproto/capnproto-rust/pull/390">#390</a>.
+However, because it improves maintainability and
+reduces code bloat (and therefore compile times!),
+the cost seems worth paying.</p>
+
+<p>To see the new <code class="language-plaintext highlighter-rouge">Debug</code> functionality in action,
+suppose that we have the following schema for an address book:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>struct Person {
+  id @0 :UInt32;
+  name @1 :Text;
+  email @2 :Text;
+  phones @3 :List(PhoneNumber);
+
+  struct PhoneNumber {
+    number @0 :Text;
+    type @1 :Type;
+
+    enum Type {
+      mobile @0;
+      home @1;
+      work @2;
+    }
+  }
+
+  employment :union {
+    unemployed @4 :Void;
+    employer @5 :Text;
+    school @6 :Text;
+    selfEmployed @7 :Void;
+  }
+}
+
+struct AddressBook {
+  people @0 :List(Person);
+}
+</code></pre></div></div>
+
+<p>If <code class="language-plaintext highlighter-rouge">address_book</code> is a value of this type,
+then we can print it with</p>
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nd">println!</span><span class="p">(</span><span class="s">"{:?}"</span><span class="p">,</span> <span class="n">address_book</span><span class="p">)</span>
+</code></pre></div></div>
+<p>and we get:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(people = [(id = 123, name = "Alice", email = "alice@example.com", phones = [(number = "555-1212", type = mobile)], employment = (school = "MIT")), (id = 456, name = "Bob", email = "bob@example.com", phones = [(number = "555-4567", type = home), (number = "555-7654", type = work)], employment = (unemployed = ()))])
+</code></pre></div></div>
+
+<p>The format here is the standard <a href="https://github.com/capnproto/capnproto/blob/b2afb7f8fe393466a38e2fd2ad98482c34aafcee/c%2B%2B/src/capnp/serialize-text.h#L34-L40">capnproto text format</a>.
+We can make it more readable via the <a href="https://doc.rust-lang.org/std/fmt/struct.Formatter.html#method.alternate">“alternate”</a> flag.
+If we print it with</p>
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nd">println!</span><span class="p">(</span><span class="s">"{:#?}"</span><span class="p">,</span> <span class="n">address_book</span><span class="p">)</span>
+</code></pre></div></div>
+<p>then we get:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(
+  people = [
+    (
+      id = 123,
+      name = "Alice",
+      email = "alice@example.com",
+      phones = [
+        (
+          number = "555-1212",
+          type = mobile
+        )
+      ],
+      employment = (
+        school = "MIT"
+      )
+    ),
+    (
+      id = 456,
+      name = "Bob",
+      email = "bob@example.com",
+      phones = [
+        (
+          number = "555-4567",
+          type = home
+        ),
+        (
+          number = "555-7654",
+          type = work
+        )
+      ],
+      employment = (
+        unemployed = ()
+      )
+    )
+  ]
+)
+</code></pre></div></div>
+
+<h2 id="filling-in-random-values">Filling in Random Values</h2>
+
+<p>Reflection also makes it easy to generate random values of any
+Cap’n Proto type, as might be useful
+in various kinds of testing.
+The new directory
+<a href="https://github.com/capnproto/capnproto-rust/tree/master/example/fill_random_values">fill_random_values</a>
+contains some example code
+illustrating this idea.</p>
+
+<h3 id="random-addressbook">Random Addressbook</h3>
+
+<p>If we take the address book schema discussed above
+and plug it into <code class="language-plaintext highlighter-rouge">fill_random_values</code>,
+the output looks like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(
+  people = [
+    (
+      id = 640675312,
+      name = "i",
+      email = "npcvojhliloc",
+      phones = [
+        (
+          number = "y",
+          type = mobile
+        ),
+        (
+          number = "mfqhbgmtgmbkyslpw",
+          type = work
+        ),
+        (
+          number = "",
+          type = home
+        ),
+        (
+          number = "yi",
+          type = work
+        ),
+        (
+          number = "vgcqfrhqlparbptuwu",
+          type = home
+        ),
+        (
+          number = "qkhyxjplpufjlxknp",
+          type = mobile
+        ),
+        (
+          number = "oyenjhvaikluhpoedkj",
+          type = work
+        ),
+        (
+          number = "y",
+          type = work
+        )
+      ],
+      employment = (
+        unemployed = ()
+      )
+    ),
+    (
+      id = 3188155808,
+      name = "mpe",
+      email = "vgqcfacrnhqrqxe",
+      phones = [],
+      employment = (
+        employer = "aobikqcv"
+      )
+    ),
+    ...
+  ]
+)
+</code></pre></div></div>
+
+<p>That’s definitely some random gibberish!</p>
+
+<p>To make the output more “realistic”,
+we can constrain the values
+of the fields using some annotations from <code class="language-plaintext highlighter-rouge">fill.capnp</code>.
+We might mark up the schema like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>using Fill = import "fill.capnp";
+using Corpora = import "corpora.capnp";
+
+struct Person {
+  id @0 :UInt32;
+  name @1 :Text $Fill.SelectFrom(List(Text)).choices(Corpora.scientists);
+  email @2 :Text $Fill.SelectFrom(List(Text)).choices(Corpora.emails);
+  phones @3 :List(PhoneNumber) $Fill.lengthRange((max = 3));
+
+  struct PhoneNumber {
+    number @0 :Text $Fill.phoneNumber;
+    type @1 :Type;
+
+    enum Type {
+      mobile @0;
+      home @1;
+      work @2;
+    }
+  }
+
+  employment :union {
+    unemployed @4 :Void;
+    employer @5 :Text $Fill.SelectFrom(List(Text)).choices(Corpora.corporations);
+    school @6 :Text $Fill.SelectFrom(List(Text)).choices(Corpora.schools);
+    selfEmployed @7 :Void;
+  }
+}
+
+struct AddressBook {
+  people @0 :List(Person) $Fill.lengthRange((max = 5));
+}
+</code></pre></div></div>
+
+<p>Annotations are signified by the dollar sign <code class="language-plaintext highlighter-rouge">$</code>. For example,
+the line</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  phones @3 :List(PhoneNumber) $Fill.lengthRange((max = 3));
+</code></pre></div></div>
+<p>tells the <code class="language-plaintext highlighter-rouge">fill_random_values</code> library
+that the value in the <code class="language-plaintext highlighter-rouge">phones</code> field should have length at most 3,
+and the line</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  name @1 :Text $Fill.SelectFrom(List(Text)).choices(Corpora.scientists);
+</code></pre></div></div>
+<p>indicates that the value for the <code class="language-plaintext highlighter-rouge">name</code>
+field should be chosen the list of choices given by the <code class="language-plaintext highlighter-rouge">Corpora.scientists</code> constant,
+which is defined in the schema file <code class="language-plaintext highlighter-rouge">corpora.capnp</code>.</p>
+
+<p>Here is some example output after these constraints are applied:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(
+  people = [
+    (
+      id = 2252764513,
+      name = "Willard Gibbs",
+      email = "c@example.com",
+      phones = [
+        (
+          number = "985-555-1858",
+          type = mobile
+        ),
+        (
+          number = "558-555-1461",
+          type = work
+        ),
+        (
+          number = "585-555-1163",
+          type = home
+        )
+      ],
+      employment = (
+        school = "Penn State"
+      )
+    ),
+    (
+      id = 2222057070,
+      name = "Joseph Priestley",
+      email = "carol@example.com",
+      phones = [
+        (
+          number = "149-555-1350",
+          type = work
+        ),
+        (
+          number = "685-555-1721",
+          type = home
+        ),
+        (
+          number = "818-555-1428",
+          type = home
+        )
+      ],
+      employment = (
+        employer = "LKQ Corporation"
+      )
+    )
+  ]
+)
+
+</code></pre></div></div>
+
+<p>That looks better!
+You can imagine that maybe the code you are testing
+does some basic validation on its inputs,
+and that values generated in this way are more likely to pass the validation,
+and therefore can achieve better code coverage.</p>
+
+<h3 id="random-shapes">Random Shapes</h3>
+
+<p>To illustrate some of the other capabilities of <code class="language-plaintext highlighter-rouge">fill_random_values</code>,
+here is a schema describing a recursive geometric grammar,
+with <code class="language-plaintext highlighter-rouge">fill_random_values</code> annotations already added:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>using Fill = import "fill.capnp";
+
+struct Color {
+  red   @0 : UInt8;
+  green @1 : UInt8;
+  blue  @2 : UInt8;
+}
+
+struct Point {
+  # A point in normalized coordinates. (0,0) is the upper-left of
+  # the current subcanvas, and (1,1) is the lower-right of the
+  # current subcanvas.
+
+  x @0 : Float64 $Fill.float64Range((min = 0.0, max = 1.0));
+  y @1 : Float64 $Fill.float64Range((min = 0.0, max = 1.0));
+}
+
+struct Line {
+  start @0 : Point;
+  end   @1 : Point;
+
+  thickness @2 : Float64 $Fill.float64Range((min = 0.01, max = 0.95));
+  # Stroke width as a percent of the current subcanvas's diagonal length.
+
+  color @3 : Color;
+}
+
+struct Circle {
+  center @0 : Point;
+  # The center of the circle.
+
+  radius @1 : Float64 $Fill.float64Range((min = 0.01, max = 0.25));
+  # The radius of the circle, as a proportion of the current
+  # subcanvas's diagonal length.
+
+  fillColor @2 : Color;
+}
+
+struct Subcanvas {
+  # A canvas contained in a larger canvas.
+
+  center @0 : Point;
+  width @1 : Float64 $Fill.float64Range((min = 0.0, max = 1.0));
+  height @2 : Float64 $Fill.float64Range((min = 0.0, max = 1.0));
+  canvas @3 : Canvas;
+}
+
+struct Canvas {
+  # A canvas containing some geometric elements.
+
+  backgroundColor @0 : Color;
+  lines @1 : List(Line) $Fill.lengthRange((max = 5));
+  circles @2 : List(Circle) $Fill.lengthRange((max = 5));
+  subcanvases @3 : List(Subcanvas) $Fill.lengthRange((max = 3));
+}
+</code></pre></div></div>
+
+<p>We can pass this to <code class="language-plaintext highlighter-rouge">fill_random_values</code>
+and then render the output as SVGs, yielding:</p>
+
+<table>
+  <tbody>
+    <tr>
+      <td> </td>
+      <td> </td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td><img width="195" src="/capnproto-rust/assets/shapes-001.svg" /></td>
+      <td><img width="195" src="/capnproto-rust/assets/shapes-002.svg" /></td>
+      <td><img width="195" src="/capnproto-rust/assets/shapes-003.svg" /></td>
+    </tr>
+    <tr>
+      <td><img width="195" src="/capnproto-rust/assets/shapes-004.svg" /></td>
+      <td><img width="195" src="/capnproto-rust/assets/shapes-005.svg" /></td>
+      <td><img width="195" src="/capnproto-rust/assets/shapes-006.svg" /></td>
+    </tr>
+    <tr>
+      <td><img width="195" src="/capnproto-rust/assets/shapes-007.svg" /></td>
+      <td><img width="195" src="/capnproto-rust/assets/shapes-008.svg" /></td>
+      <td><img width="195" src="/capnproto-rust/assets/shapes-009.svg" /></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>I think these are fun! But the colors are maybe a bit too wild for my taste.
+What if we fixed a color palette?
+To that end, we define a constant:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>const palette: List(Color) = [
+ (red = 0x22, green = 0xd7, blue = 0xb5),
+ (red = 0x11, green = 0xb1, blue = 0x86),
+ (red = 0x7c, green = 0xa4, blue = 0xf5),
+ (red = 0xe7, green = 0x60, blue = 0x1d),
+ (red = 0x25, green = 0x23, blue = 0x25),
+ (red = 0x89, green = 0x74, blue = 0x59),
+];
+</code></pre></div></div>
+<p>and then we annotate the color fields like this:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  color @3 : Color $Fill.SelectFrom(List(Color)).choices(.palette);
+</code></pre></div></div>
+
+<p>Now the output, with constrained colors, looks like:</p>
+
+<table>
+  <tbody>
+    <tr>
+      <td> </td>
+      <td> </td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td><img width="195" src="/capnproto-rust/assets/shapes-palette-001.svg" /></td>
+      <td><img width="195" src="/capnproto-rust/assets/shapes-palette-002.svg" /></td>
+      <td><img width="195" src="/capnproto-rust/assets/shapes-palette-003.svg" /></td>
+    </tr>
+    <tr>
+      <td><img width="195" src="/capnproto-rust/assets/shapes-palette-004.svg" /></td>
+      <td><img width="195" src="/capnproto-rust/assets/shapes-palette-005.svg" /></td>
+      <td><img width="195" src="/capnproto-rust/assets/shapes-palette-006.svg" /></td>
+    </tr>
+    <tr>
+      <td><img width="195" src="/capnproto-rust/assets/shapes-palette-007.svg" /></td>
+      <td><img width="195" src="/capnproto-rust/assets/shapes-palette-008.svg" /></td>
+      <td><img width="195" src="/capnproto-rust/assets/shapes-palette-009.svg" /></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Now that’s starting to look like something I might frame and hang on a wall.</p>
+
+<h2 id="how-it-works">How It Works</h2>
+
+<p>The implementation of reflection
+in capnproto-rust largely follows
+the original implementation of reflection
+in <a href="https://github.com/capnproto/capnproto">capnproto-c++</a>.
+The main idea is to
+stash type descriptions in the generated code.</p>
+
+<p>The schema compiler plugin (capnpc-rust or capnpc-c++)
+receives its input as a
+<a href="https://github.com/capnproto/capnproto/blob/b2afb7f8fe393466a38e2fd2ad98482c34aafcee/c%2B%2B/src/capnp/schema.capnp#L498-L542"><code class="language-plaintext highlighter-rouge">CodeGeneratorRequest</code></a>
+Cap’n Proto message,
+containing a list of
+<a href="https://github.com/capnproto/capnproto/blob/b2afb7f8fe393466a38e2fd2ad98482c34aafcee/c%2B%2B/src/capnp/schema.capnp#L30-L199"><code class="language-plaintext highlighter-rouge">Node</code></a>
+values that describe all of the user-declared types.
+To support reflection, we save these <code class="language-plaintext highlighter-rouge">Node</code> values
+as static constants, and we make them available (in Rust) via
+an <code class="language-plaintext highlighter-rouge">Introspect</code> trait:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">pub</span> <span class="k">trait</span> <span class="n">Introspect</span> <span class="p">{</span>
+    <span class="k">fn</span> <span class="nf">introspect</span><span class="p">()</span> <span class="k">-&gt;</span> <span class="n">Type</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>This <code class="language-plaintext highlighter-rouge">Type</code> type represents a recursive data structure that can describe
+any <a href="https://capnproto.org/language.html#language-reference">Cap’n Proto type</a>.
+Usually, recursive data structures require some form of heap allocation
+to avoid having infinite size.
+In this case, however, we achieve the necessary indirection
+by holding static references to the <code class="language-plaintext highlighter-rouge">Node</code> values in the generated code.
+This allows the entire reflection system to work
+without needing any heap allocation.</p>
+
+<p>(Note that this setup implies that reflection is only possible on types
+that are known at compile time.
+The C++ implementation does offer further support for registering new types at
+run time, but adding such support in Rust would require a significant amount of
+additional effort.)</p>
+
+<p>One tricky of all this is
+the fact that Cap’n Proto has
+<a href="https://capnproto.org/language.html#generic-types">generic types</a>.
+That is, structs can have type parameters.
+We need to be able to retrieve information about such structs
+<em>after applying type substitution</em> for those parameters.</p>
+
+<p>The C++ implementation
+has a <a href="https://github.com/capnproto/capnproto/blob/b2afb7f8fe393466a38e2fd2ad98482c34aafcee/c%2B%2B/src/capnp/raw-schema.h#L40-L42">scary comment</a>
+about how it solves this problem:</p>
+
+<div class="language-c++ highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">// Note that while we generate one `RawSchema` per type, we generate a</span>
+<span class="c1">// `RawBrandedSchema` for every _instance_ of a generic type -- or, at</span>
+<span class="c1">// least, every instance that is actually used. For generated-code types,</span>
+<span class="c1">// we use template magic to initialize these.</span>
+</code></pre></div></div>
+
+<p>Rust most assuredly does not have “template magic”,
+so it’s not immediately clear how to solve the equivalent problem in Rust.</p>
+
+<p>Fortunately,
+while Rust does not support type-parameterized static variables,
+it does support type-parameterized functions,
+and we can push type resolution logic into a
+<em>function</em> generated for every Cap’n Proto struct type:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">pub</span> <span class="k">fn</span> <span class="n">get_field_types</span><span class="o">&lt;</span><span class="n">T1</span><span class="p">,</span> <span class="n">T2</span><span class="p">,</span> <span class="o">...&gt;</span><span class="p">(</span><span class="n">field_index</span><span class="p">:</span> <span class="nb">u16</span><span class="p">)</span> <span class="k">-&gt;</span> <span class="nn">introspect</span><span class="p">::</span><span class="n">Type</span> <span class="p">{</span>
+<span class="o">...</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>When you retrieve a field of a dynamic struct in capnproto-rust,
+the implemention will call the underlying <code class="language-plaintext highlighter-rouge">get_field_types()</code> method
+to retrieve the type of the field.
+It will then return to you a <code class="language-plaintext highlighter-rouge">dynamic_value::Reader</code> tagged with that type.</p>
+
+<h2 id="ideas-for-future-projects">Ideas for Future Projects</h2>
+
+<p>Reflection has a wide range of possible applications,
+including:</p>
+
+<ul>
+  <li>Automatic conversion between Cap’n Proto data and
+various self-describing formats such JSON and XML.</li>
+  <li>Structure-aware fuzz testing and fault injection.</li>
+  <li>Database adapters.</li>
+  <li>Analysis tools for structured logs.</li>
+  <li>Conversion between Cap’n Proto data and native Rust structs, perhaps using some of the existing or future reflection features described in this
+<a href="https://soasis.org/posts/a-mirror-for-rust-a-plan-for-generic-compile-time-introspection-in-rust/">recent Shepherd’s Oasis blog post</a>.</li>
+</ul>
+
+<p>I’m excited to see what users come up with!</p>
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+
+<div>
+ <a href="https://www.github.com/capnproto/capnproto-rust">
+   capnproto-rust on github
+ </a>
+</div>
+
+<div>
+ <a href="/capnproto-rust/index.html">
+   more posts
+ </a>
+</div>
+
+<a href="/capnproto-rust/feed.xml">
+<img src="/capnproto-rust/assets/rss.png"
+     width="14"/>
+</a>
+
+
+</body>
