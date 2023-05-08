@@ -7,6 +7,573 @@
                 <atom:link href="http://dwrensha.github.io/capnproto-rust/feed.xml" rel="self" type="application/rss+xml" />
                 
                         <item>
+                                <title>run-time reflection</title>
+                                <description>&lt;p&gt;Version 0.17 of
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust&quot;&gt;capnproto-rust&lt;/a&gt;
+is now available!
+It introduces support for dynamically typed values,
+enabling a kind of run-time reflection.
+The new functionality lets you write
+ordinary Rust code to
+iterate through the fields of any Cap’n Proto
+&lt;a href=&quot;https://capnproto.org/language.html#structs&quot;&gt;struct&lt;/a&gt;,
+with access to  names, types, and
+&lt;a href=&quot;https://capnproto.org/language.html#annotations&quot;&gt;annotations&lt;/a&gt;.
+Previously, you would have needed to use code generation or procedural
+macros to achieve such things.&lt;/p&gt;
+
+&lt;p&gt;This blog post will show two particular applications of reflection:
+debug printing and generating random structured data.
+The former has until now been sorely missing in capnproto-rust,
+and the latter can yield (pretty?) pictures like this:&lt;/p&gt;
+
+&lt;p&gt;&lt;img width=&quot;350&quot; src=&quot;/capnproto-rust/assets/shapes-000.svg&quot; alt=&quot;colorful randomly generated shapes&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;The post will also look at some details
+of how the implementation of reflection works.&lt;/p&gt;
+
+&lt;h2 id=&quot;debug-printing&quot;&gt;Debug Printing&lt;/h2&gt;
+
+&lt;p&gt;A major motivation for adding reflection to capnproto-rust
+is to implement the &lt;a href=&quot;https://doc.rust-lang.org/core/fmt/trait.Debug.html&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Debug&lt;/code&gt;&lt;/a&gt;
+trait for all Cap’n Proto structs.
+Because the data for such structs lives behind
+a layer of indirection
+(i.e. &lt;a href=&quot;/capnproto-rust/2014/12/27/custom-mutable-references.html&quot;&gt;synthetic references&lt;/a&gt;),
+merely adding a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;#[derive(Debug)]&lt;/code&gt; annotation to the type declarations
+would not be sufficient to print any useful information.
+Instead, we need to add custom &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Debug&lt;/code&gt; implementations
+that read the underlying data.&lt;/p&gt;
+
+&lt;p&gt;One way to achieve that would be to generate,
+for each struct, separate implementation logic
+which iterates through the struct fields and prints their values in sequence.
+That’s the approach proposed by &lt;a href=&quot;https://github.com/as-com&quot;&gt;@as-com&lt;/a&gt;
+in pull request &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/pull/390&quot;&gt;#390&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;However, now that we have reflection, we can avoid generating so much single-purpose
+code. Instead, our &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Debug&lt;/code&gt; implementation for each struct immediately
+delegates to a shared implementation that knows how to deal with
+&lt;em&gt;any&lt;/em&gt; Cap’n Proto struct type. See
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/f7c86befe11b27f33c2a45957d402abff2b9e347/capnp/src/stringify.rs&quot;&gt;stringify.rs&lt;/a&gt;
+if you are curious about what the code looks like.&lt;/p&gt;
+
+&lt;p&gt;Using reflection in this way does have a (small)
+run-time cost, as it requires
+more branching than the static approach
+implemented in &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/pull/390&quot;&gt;#390&lt;/a&gt;.
+However, because it improves maintainability and
+reduces code bloat (and therefore compile times!),
+the cost seems worth paying.&lt;/p&gt;
+
+&lt;p&gt;To see the new &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Debug&lt;/code&gt; functionality in action,
+suppose that we have the following schema for an address book:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;struct Person {
+  id @0 :UInt32;
+  name @1 :Text;
+  email @2 :Text;
+  phones @3 :List(PhoneNumber);
+
+  struct PhoneNumber {
+    number @0 :Text;
+    type @1 :Type;
+
+    enum Type {
+      mobile @0;
+      home @1;
+      work @2;
+    }
+  }
+
+  employment :union {
+    unemployed @4 :Void;
+    employer @5 :Text;
+    school @6 :Text;
+    selfEmployed @7 :Void;
+  }
+}
+
+struct AddressBook {
+  people @0 :List(Person);
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;If &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;address_book&lt;/code&gt; is a value of this type,
+then we can print it with&lt;/p&gt;
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nd&quot;&gt;println!&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;{:?}&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;address_book&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;p&gt;and we get:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(people = [(id = 123, name = &quot;Alice&quot;, email = &quot;alice@example.com&quot;, phones = [(number = &quot;555-1212&quot;, type = mobile)], employment = (school = &quot;MIT&quot;)), (id = 456, name = &quot;Bob&quot;, email = &quot;bob@example.com&quot;, phones = [(number = &quot;555-4567&quot;, type = home), (number = &quot;555-7654&quot;, type = work)], employment = (unemployed = ()))])
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;The format here is the standard &lt;a href=&quot;https://github.com/capnproto/capnproto/blob/b2afb7f8fe393466a38e2fd2ad98482c34aafcee/c%2B%2B/src/capnp/serialize-text.h#L34-L40&quot;&gt;capnproto text format&lt;/a&gt;.
+We can make it more readable via the &lt;a href=&quot;https://doc.rust-lang.org/std/fmt/struct.Formatter.html#method.alternate&quot;&gt;“alternate”&lt;/a&gt; flag.
+If we print it with&lt;/p&gt;
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nd&quot;&gt;println!&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;{:#?}&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;address_book&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;p&gt;then we get:&lt;/p&gt;
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(
+  people = [
+    (
+      id = 123,
+      name = &quot;Alice&quot;,
+      email = &quot;alice@example.com&quot;,
+      phones = [
+        (
+          number = &quot;555-1212&quot;,
+          type = mobile
+        )
+      ],
+      employment = (
+        school = &quot;MIT&quot;
+      )
+    ),
+    (
+      id = 456,
+      name = &quot;Bob&quot;,
+      email = &quot;bob@example.com&quot;,
+      phones = [
+        (
+          number = &quot;555-4567&quot;,
+          type = home
+        ),
+        (
+          number = &quot;555-7654&quot;,
+          type = work
+        )
+      ],
+      employment = (
+        unemployed = ()
+      )
+    )
+  ]
+)
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h2 id=&quot;filling-in-random-values&quot;&gt;Filling in Random Values&lt;/h2&gt;
+
+&lt;p&gt;Reflection also makes it easy to generate random values of any
+Cap’n Proto type, as might be useful
+in various kinds of testing.
+The new directory
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/tree/master/example/fill_random_values&quot;&gt;fill_random_values&lt;/a&gt;
+contains some example code
+illustrating this idea.&lt;/p&gt;
+
+&lt;h3 id=&quot;random-addressbook&quot;&gt;Random Addressbook&lt;/h3&gt;
+
+&lt;p&gt;If we take the address book schema discussed above
+and plug it into &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fill_random_values&lt;/code&gt;,
+the output looks like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(
+  people = [
+    (
+      id = 640675312,
+      name = &quot;i&quot;,
+      email = &quot;npcvojhliloc&quot;,
+      phones = [
+        (
+          number = &quot;y&quot;,
+          type = mobile
+        ),
+        (
+          number = &quot;mfqhbgmtgmbkyslpw&quot;,
+          type = work
+        ),
+        (
+          number = &quot;&quot;,
+          type = home
+        ),
+        (
+          number = &quot;yi&quot;,
+          type = work
+        ),
+        (
+          number = &quot;vgcqfrhqlparbptuwu&quot;,
+          type = home
+        ),
+        (
+          number = &quot;qkhyxjplpufjlxknp&quot;,
+          type = mobile
+        ),
+        (
+          number = &quot;oyenjhvaikluhpoedkj&quot;,
+          type = work
+        ),
+        (
+          number = &quot;y&quot;,
+          type = work
+        )
+      ],
+      employment = (
+        unemployed = ()
+      )
+    ),
+    (
+      id = 3188155808,
+      name = &quot;mpe&quot;,
+      email = &quot;vgqcfacrnhqrqxe&quot;,
+      phones = [],
+      employment = (
+        employer = &quot;aobikqcv&quot;
+      )
+    ),
+    ...
+  ]
+)
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;That’s definitely some random gibberish!&lt;/p&gt;
+
+&lt;p&gt;To make the output more “realistic”,
+we can constrain the values
+of the fields using some annotations from &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fill.capnp&lt;/code&gt;.
+We might mark up the schema like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;using Fill = import &quot;fill.capnp&quot;;
+using Corpora = import &quot;corpora.capnp&quot;;
+
+struct Person {
+  id @0 :UInt32;
+  name @1 :Text $Fill.SelectFrom(List(Text)).choices(Corpora.scientists);
+  email @2 :Text $Fill.SelectFrom(List(Text)).choices(Corpora.emails);
+  phones @3 :List(PhoneNumber) $Fill.lengthRange((max = 3));
+
+  struct PhoneNumber {
+    number @0 :Text $Fill.phoneNumber;
+    type @1 :Type;
+
+    enum Type {
+      mobile @0;
+      home @1;
+      work @2;
+    }
+  }
+
+  employment :union {
+    unemployed @4 :Void;
+    employer @5 :Text $Fill.SelectFrom(List(Text)).choices(Corpora.corporations);
+    school @6 :Text $Fill.SelectFrom(List(Text)).choices(Corpora.schools);
+    selfEmployed @7 :Void;
+  }
+}
+
+struct AddressBook {
+  people @0 :List(Person) $Fill.lengthRange((max = 5));
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Annotations are signified by the dollar sign &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;$&lt;/code&gt;. For example,
+the line&lt;/p&gt;
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;  phones @3 :List(PhoneNumber) $Fill.lengthRange((max = 3));
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;p&gt;tells the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fill_random_values&lt;/code&gt; library
+that the value in the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;phones&lt;/code&gt; field should have length at most 3,
+and the line&lt;/p&gt;
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;  name @1 :Text $Fill.SelectFrom(List(Text)).choices(Corpora.scientists);
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;p&gt;indicates that the value for the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;name&lt;/code&gt;
+field should be chosen the list of choices given by the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Corpora.scientists&lt;/code&gt; constant,
+which is defined in the schema file &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;corpora.capnp&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;Here is some example output after these constraints are applied:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(
+  people = [
+    (
+      id = 2252764513,
+      name = &quot;Willard Gibbs&quot;,
+      email = &quot;c@example.com&quot;,
+      phones = [
+        (
+          number = &quot;985-555-1858&quot;,
+          type = mobile
+        ),
+        (
+          number = &quot;558-555-1461&quot;,
+          type = work
+        ),
+        (
+          number = &quot;585-555-1163&quot;,
+          type = home
+        )
+      ],
+      employment = (
+        school = &quot;Penn State&quot;
+      )
+    ),
+    (
+      id = 2222057070,
+      name = &quot;Joseph Priestley&quot;,
+      email = &quot;carol@example.com&quot;,
+      phones = [
+        (
+          number = &quot;149-555-1350&quot;,
+          type = work
+        ),
+        (
+          number = &quot;685-555-1721&quot;,
+          type = home
+        ),
+        (
+          number = &quot;818-555-1428&quot;,
+          type = home
+        )
+      ],
+      employment = (
+        employer = &quot;LKQ Corporation&quot;
+      )
+    )
+  ]
+)
+
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;That looks better!
+You can imagine that maybe the code you are testing
+does some basic validation on its inputs,
+and that values generated in this way are more likely to pass the validation,
+and therefore can achieve better code coverage.&lt;/p&gt;
+
+&lt;h3 id=&quot;random-shapes&quot;&gt;Random Shapes&lt;/h3&gt;
+
+&lt;p&gt;To illustrate some of the other capabilities of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fill_random_values&lt;/code&gt;,
+here is a schema describing a recursive geometric grammar,
+with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fill_random_values&lt;/code&gt; annotations already added:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;using Fill = import &quot;fill.capnp&quot;;
+
+struct Color {
+  red   @0 : UInt8;
+  green @1 : UInt8;
+  blue  @2 : UInt8;
+}
+
+struct Point {
+  # A point in normalized coordinates. (0,0) is the upper-left of
+  # the current subcanvas, and (1,1) is the lower-right of the
+  # current subcanvas.
+
+  x @0 : Float64 $Fill.float64Range((min = 0.0, max = 1.0));
+  y @1 : Float64 $Fill.float64Range((min = 0.0, max = 1.0));
+}
+
+struct Line {
+  start @0 : Point;
+  end   @1 : Point;
+
+  thickness @2 : Float64 $Fill.float64Range((min = 0.01, max = 0.95));
+  # Stroke width as a percent of the current subcanvas&apos;s diagonal length.
+
+  color @3 : Color;
+}
+
+struct Circle {
+  center @0 : Point;
+  # The center of the circle.
+
+  radius @1 : Float64 $Fill.float64Range((min = 0.01, max = 0.25));
+  # The radius of the circle, as a proportion of the current
+  # subcanvas&apos;s diagonal length.
+
+  fillColor @2 : Color;
+}
+
+struct Subcanvas {
+  # A canvas contained in a larger canvas.
+
+  center @0 : Point;
+  width @1 : Float64 $Fill.float64Range((min = 0.0, max = 1.0));
+  height @2 : Float64 $Fill.float64Range((min = 0.0, max = 1.0));
+  canvas @3 : Canvas;
+}
+
+struct Canvas {
+  # A canvas containing some geometric elements.
+
+  backgroundColor @0 : Color;
+  lines @1 : List(Line) $Fill.lengthRange((max = 5));
+  circles @2 : List(Circle) $Fill.lengthRange((max = 5));
+  subcanvases @3 : List(Subcanvas) $Fill.lengthRange((max = 3));
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;We can pass this to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fill_random_values&lt;/code&gt;
+and then render the output as SVGs, yielding:&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt; &lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;img width=&quot;195&quot; src=&quot;/capnproto-rust/assets/shapes-001.svg&quot; /&gt;&lt;/td&gt;
+      &lt;td&gt;&lt;img width=&quot;195&quot; src=&quot;/capnproto-rust/assets/shapes-002.svg&quot; /&gt;&lt;/td&gt;
+      &lt;td&gt;&lt;img width=&quot;195&quot; src=&quot;/capnproto-rust/assets/shapes-003.svg&quot; /&gt;&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;img width=&quot;195&quot; src=&quot;/capnproto-rust/assets/shapes-004.svg&quot; /&gt;&lt;/td&gt;
+      &lt;td&gt;&lt;img width=&quot;195&quot; src=&quot;/capnproto-rust/assets/shapes-005.svg&quot; /&gt;&lt;/td&gt;
+      &lt;td&gt;&lt;img width=&quot;195&quot; src=&quot;/capnproto-rust/assets/shapes-006.svg&quot; /&gt;&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;img width=&quot;195&quot; src=&quot;/capnproto-rust/assets/shapes-007.svg&quot; /&gt;&lt;/td&gt;
+      &lt;td&gt;&lt;img width=&quot;195&quot; src=&quot;/capnproto-rust/assets/shapes-008.svg&quot; /&gt;&lt;/td&gt;
+      &lt;td&gt;&lt;img width=&quot;195&quot; src=&quot;/capnproto-rust/assets/shapes-009.svg&quot; /&gt;&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;I think these are fun! But the colors are maybe a bit too wild for my taste.
+What if we fixed a color palette?
+To that end, we define a constant:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;const palette: List(Color) = [
+ (red = 0x22, green = 0xd7, blue = 0xb5),
+ (red = 0x11, green = 0xb1, blue = 0x86),
+ (red = 0x7c, green = 0xa4, blue = 0xf5),
+ (red = 0xe7, green = 0x60, blue = 0x1d),
+ (red = 0x25, green = 0x23, blue = 0x25),
+ (red = 0x89, green = 0x74, blue = 0x59),
+];
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;p&gt;and then we annotate the color fields like this:&lt;/p&gt;
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;  color @3 : Color $Fill.SelectFrom(List(Color)).choices(.palette);
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Now the output, with constrained colors, looks like:&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;tbody&gt;
+    &lt;tr&gt;
+      &lt;td&gt; &lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+      &lt;td&gt; &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;img width=&quot;195&quot; src=&quot;/capnproto-rust/assets/shapes-palette-001.svg&quot; /&gt;&lt;/td&gt;
+      &lt;td&gt;&lt;img width=&quot;195&quot; src=&quot;/capnproto-rust/assets/shapes-palette-002.svg&quot; /&gt;&lt;/td&gt;
+      &lt;td&gt;&lt;img width=&quot;195&quot; src=&quot;/capnproto-rust/assets/shapes-palette-003.svg&quot; /&gt;&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;img width=&quot;195&quot; src=&quot;/capnproto-rust/assets/shapes-palette-004.svg&quot; /&gt;&lt;/td&gt;
+      &lt;td&gt;&lt;img width=&quot;195&quot; src=&quot;/capnproto-rust/assets/shapes-palette-005.svg&quot; /&gt;&lt;/td&gt;
+      &lt;td&gt;&lt;img width=&quot;195&quot; src=&quot;/capnproto-rust/assets/shapes-palette-006.svg&quot; /&gt;&lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+      &lt;td&gt;&lt;img width=&quot;195&quot; src=&quot;/capnproto-rust/assets/shapes-palette-007.svg&quot; /&gt;&lt;/td&gt;
+      &lt;td&gt;&lt;img width=&quot;195&quot; src=&quot;/capnproto-rust/assets/shapes-palette-008.svg&quot; /&gt;&lt;/td&gt;
+      &lt;td&gt;&lt;img width=&quot;195&quot; src=&quot;/capnproto-rust/assets/shapes-palette-009.svg&quot; /&gt;&lt;/td&gt;
+    &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;Now that’s starting to look like something I might frame and hang on a wall.&lt;/p&gt;
+
+&lt;h2 id=&quot;how-it-works&quot;&gt;How It Works&lt;/h2&gt;
+
+&lt;p&gt;The implementation of reflection
+in capnproto-rust largely follows
+the original implementation of reflection
+in &lt;a href=&quot;https://github.com/capnproto/capnproto&quot;&gt;capnproto-c++&lt;/a&gt;.
+The main idea is to
+stash type descriptions in the generated code.&lt;/p&gt;
+
+&lt;p&gt;The schema compiler plugin (capnpc-rust or capnpc-c++)
+receives its input as a
+&lt;a href=&quot;https://github.com/capnproto/capnproto/blob/b2afb7f8fe393466a38e2fd2ad98482c34aafcee/c%2B%2B/src/capnp/schema.capnp#L498-L542&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;CodeGeneratorRequest&lt;/code&gt;&lt;/a&gt;
+Cap’n Proto message,
+containing a list of
+&lt;a href=&quot;https://github.com/capnproto/capnproto/blob/b2afb7f8fe393466a38e2fd2ad98482c34aafcee/c%2B%2B/src/capnp/schema.capnp#L30-L199&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Node&lt;/code&gt;&lt;/a&gt;
+values that describe all of the user-declared types.
+To support reflection, we save these &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Node&lt;/code&gt; values
+as static constants, and we make them available (in Rust) via
+an &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Introspect&lt;/code&gt; trait:&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;trait&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Introspect&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;introspect&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Type&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;This &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Type&lt;/code&gt; type represents a recursive data structure that can describe
+any &lt;a href=&quot;https://capnproto.org/language.html#language-reference&quot;&gt;Cap’n Proto type&lt;/a&gt;.
+Usually, recursive data structures require some form of heap allocation
+to avoid having infinite size.
+In this case, however, we achieve the necessary indirection
+by holding static references to the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Node&lt;/code&gt; values in the generated code.
+This allows the entire reflection system to work
+without needing any heap allocation.&lt;/p&gt;
+
+&lt;p&gt;(Note that this setup implies that reflection is only possible on types
+that are known at compile time.
+The C++ implementation does offer further support for registering new types at
+run time, but adding such support in Rust would require a significant amount of
+additional effort.)&lt;/p&gt;
+
+&lt;p&gt;One tricky of all this is
+the fact that Cap’n Proto has
+&lt;a href=&quot;https://capnproto.org/language.html#generic-types&quot;&gt;generic types&lt;/a&gt;.
+That is, structs can have type parameters.
+We need to be able to retrieve information about such structs
+&lt;em&gt;after applying type substitution&lt;/em&gt; for those parameters.&lt;/p&gt;
+
+&lt;p&gt;The C++ implementation
+has a &lt;a href=&quot;https://github.com/capnproto/capnproto/blob/b2afb7f8fe393466a38e2fd2ad98482c34aafcee/c%2B%2B/src/capnp/raw-schema.h#L40-L42&quot;&gt;scary comment&lt;/a&gt;
+about how it solves this problem:&lt;/p&gt;
+
+&lt;div class=&quot;language-c++ highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;c1&quot;&gt;// Note that while we generate one `RawSchema` per type, we generate a&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;// `RawBrandedSchema` for every _instance_ of a generic type -- or, at&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;// least, every instance that is actually used. For generated-code types,&lt;/span&gt;
+&lt;span class=&quot;c1&quot;&gt;// we use template magic to initialize these.&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Rust most assuredly does not have “template magic”,
+so it’s not immediately clear how to solve the equivalent problem in Rust.&lt;/p&gt;
+
+&lt;p&gt;Fortunately,
+while Rust does not support type-parameterized static variables,
+it does support type-parameterized functions,
+and we can push type resolution logic into a
+&lt;em&gt;function&lt;/em&gt; generated for every Cap’n Proto struct type:&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;get_field_types&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;T1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;T2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;...&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;field_index&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;u16&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;introspect&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Type&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+&lt;span class=&quot;o&quot;&gt;...&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;When you retrieve a field of a dynamic struct in capnproto-rust,
+the implemention will call the underlying &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;get_field_types()&lt;/code&gt; method
+to retrieve the type of the field.
+It will then return to you a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;dynamic_value::Reader&lt;/code&gt; tagged with that type.&lt;/p&gt;
+
+&lt;h2 id=&quot;ideas-for-future-projects&quot;&gt;Ideas for Future Projects&lt;/h2&gt;
+
+&lt;p&gt;Reflection has a wide range of possible applications,
+including:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;Automatic conversion between Cap’n Proto data and
+various self-describing formats such JSON and XML.&lt;/li&gt;
+  &lt;li&gt;Structure-aware fuzz testing and fault injection.&lt;/li&gt;
+  &lt;li&gt;Database adapters.&lt;/li&gt;
+  &lt;li&gt;Analysis tools for structured logs.&lt;/li&gt;
+  &lt;li&gt;Conversion between Cap’n Proto data and native Rust structs, perhaps using some of the existing or future reflection features described in this
+&lt;a href=&quot;https://soasis.org/posts/a-mirror-for-rust-a-plan-for-generic-compile-time-introspection-in-rust/&quot;&gt;recent Shepherd’s Oasis blog post&lt;/a&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;I’m excited to see what users come up with!&lt;/p&gt;
+</description>
+                                <pubDate>Mon, 08 May 2023 00:00:00 -0400</pubDate>
+                                <link>http://dwrensha.github.io/capnproto-rust/2023/05/08/run-time-reflection.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2023/05/08/run-time-reflection.html</guid>
+                        </item>
+                
+                        <item>
                                 <title>out-of-bounds memory access bug</title>
                                 <description>&lt;p&gt;Recent fuzz testing has uncovered a bug in
 &lt;a href=&quot;https://github.com/capnproto/capnproto-rust&quot;&gt;capnproto-rust&lt;/a&gt;
@@ -1231,181 +1798,6 @@ Join me for discussion at #sandstorm on freenode IRC or at the
                                 <pubDate>Wed, 04 Jan 2017 00:00:00 -0500</pubDate>
                                 <link>http://dwrensha.github.io/capnproto-rust/2017/01/04/rpc-futures.html</link>
                                 <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2017/01/04/rpc-futures.html</guid>
-                        </item>
-                
-                        <item>
-                                <title>async generators</title>
-                                <description>&lt;p&gt;Until recently,
-the concept of &lt;em&gt;generators&lt;/em&gt;, or &lt;em&gt;resumable functions&lt;/em&gt;,
-seemed to me like a cute idea
-with only niche use cases.
-Sure, I had heard that generators
-in &lt;a href=&quot;https://www.python.org/dev/peps/pep-0255/&quot;&gt;python&lt;/a&gt;
-and
-&lt;a href=&quot;https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Iterators_and_Generators#Generators&quot;&gt;javascript&lt;/a&gt;
-could make certain things much nicer,
-but how often does one really need to have
-what appears to be nothing more than a fancy iterator?
-It wasn’t until I followed
-this &lt;a href=&quot;https://github.com/rust-lang/rfcs/issues/1081&quot;&gt;Rust RFC thread&lt;/a&gt;
-that the true potential of generators in Rust started to dawn on me.
-Today they are my personal number-one most-desired new feature for the language, mostly because I
-believe they are the biggest missing piece in Rust’s async story.&lt;/p&gt;
-
-&lt;p&gt;But how are generators relevant to async at all?&lt;/p&gt;
-
-&lt;p&gt;To understand that, let’s first imagine what generators might look like in Rust.
-We start with a trait definition (borrowed from eddyb’s comment in the above-linked thread):&lt;/p&gt;
-
-&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;enum&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Yield&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;R&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;nf&quot;&gt;Value&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;T&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt;
-    &lt;span class=&quot;nf&quot;&gt;Return&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;R&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-
-&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;trait&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Generator&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;type&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Value&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;type&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Return&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Yield&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;Self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Value&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;Self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Return&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
-
-&lt;p&gt;So a generator looks a lot like an iterator. You can ask it for the next value
-until you reach its end, signalled by &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Return&lt;/code&gt;.
-The interesting part is that there is a special way to construct
-values that implement &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Generator&lt;/code&gt;. For example:&lt;/p&gt;
-
-&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;fib_with_sum&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;usize&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;lt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-     &lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;a&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-     &lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;b&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-     &lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;sum&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-     &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;_&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;..&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;n&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-         &lt;span class=&quot;k&quot;&gt;yield&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;a&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// &amp;lt;--- new keyword &quot;yield&quot;&lt;/span&gt;
-         &lt;span class=&quot;n&quot;&gt;sum&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;a&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-         &lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;next&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;a&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;b&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-         &lt;span class=&quot;n&quot;&gt;a&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;b&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-         &lt;span class=&quot;n&quot;&gt;b&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-     &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-     &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;sum&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
-
-&lt;p&gt;Here I’ve used some strawman syntax &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fn foo() -&amp;lt;T&amp;gt;-&amp;gt; R&lt;/code&gt;, which denotes that &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;foo&lt;/code&gt;
-is a &lt;em&gt;generator function&lt;/em&gt; that produces some number of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;T&lt;/code&gt; values
-and then finishes by producing an &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;R&lt;/code&gt;.
-The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;yield&lt;/code&gt; keyword inside of a generator function means that a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Yield::Value()&lt;/code&gt; should be produced
-and the generator should be paused.
-When you call &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fib_with_sum()&lt;/code&gt;, the value you get back is a generator,
-which can be used by calling &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;next()&lt;/code&gt;, like this:&lt;/p&gt;
-
-&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;g&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;fib_with_sum&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;5&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(0)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(1)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(1)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(2)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(3)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Return(7)&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
-
-&lt;p&gt;Another thing that we might want to do is to
-have one generator delegate to another generator.
-The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;yield from&lt;/code&gt; construction allows that:&lt;/p&gt;
-
-&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;sub_gen&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;lt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;bool&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;i&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;..&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;n&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-        &lt;span class=&quot;k&quot;&gt;yield&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;i&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;==&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-
-&lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;gen&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;lt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-   &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;j&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;in&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;..&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-       &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;yield&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;from&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;sub_gen&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;j&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-           &lt;span class=&quot;k&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;j&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-       &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-   &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
-
-&lt;p&gt;Running this gives:&lt;/p&gt;
-
-&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;g&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;gen&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(0)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(0)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(1)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(0)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(1)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Value(2)&lt;/span&gt;
-&lt;span class=&quot;n&quot;&gt;g&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.next&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt; &lt;span class=&quot;c1&quot;&gt;// Yield::Return(3)&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
-
-&lt;p&gt;Note that when the sub-generator is done,
-its return value gets plugged in at the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;yield from&lt;/code&gt; expression of the
-calling generator. So &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;gen()&lt;/code&gt; continues until &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;j == 3&lt;/code&gt;.&lt;/p&gt;
-
-&lt;h3 id=&quot;using-generators-for-async-io&quot;&gt;Using generators for async I/O&lt;/h3&gt;
-
-&lt;p&gt;Now for the punchline. Using generators, we can define
-asynchronous reader and writer traits like this:&lt;/p&gt;
-
-&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;k&quot;&gt;use&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;std&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;io&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::{&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Error&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ErrorKind&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;Result&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;};&lt;/span&gt;
-
-&lt;span class=&quot;k&quot;&gt;enum&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;AsyncStatus&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-  &lt;span class=&quot;nf&quot;&gt;Fd&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;FileDescriptor&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt;
-  &lt;span class=&quot;nf&quot;&gt;Timeout&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Time&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;),&lt;/span&gt;
-  &lt;span class=&quot;c1&quot;&gt;//...&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-
-&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;trait&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;AsyncWrite&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;cd&quot;&gt;/// Attempts to write all buf.len() bytes from buf into the&lt;/span&gt;
-    &lt;span class=&quot;cd&quot;&gt;/// stream. Returns once all of the bytes have been written.&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;write&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;])&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;-&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;AsyncStatus&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;Result&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-
-&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;trait&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;AsyncRead&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;cd&quot;&gt;/// Attempts to read buf.len() bytes from the stream,&lt;/span&gt;
-    &lt;span class=&quot;cd&quot;&gt;/// writing them into buf. Returns the number of bytes&lt;/span&gt;
-    &lt;span class=&quot;cd&quot;&gt;/// actually read. Returns as soon as min_bytes are&lt;/span&gt;
-    &lt;span class=&quot;cd&quot;&gt;/// read or EOF is encountered.&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;try_read&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-                &lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt;
-                &lt;span class=&quot;n&quot;&gt;min_bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;usize&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
-        &lt;span class=&quot;o&quot;&gt;-&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;AsyncStatus&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;Result&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;usize&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-
-    &lt;span class=&quot;cd&quot;&gt;/// Like try_read(), but returns an error if EOF is&lt;/span&gt;
-    &lt;span class=&quot;cd&quot;&gt;/// encountered before min_bytes can be read.&lt;/span&gt;
-    &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;read&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-            &lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;],&lt;/span&gt;
-            &lt;span class=&quot;n&quot;&gt;min_bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;usize&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
-        &lt;span class=&quot;o&quot;&gt;-&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;AsyncStatus&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;Result&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;usize&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-       &lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;try&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;!&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;yield&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;from&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.try_read&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;buf&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;min_bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;));&lt;/span&gt;
-       &lt;span class=&quot;k&quot;&gt;if&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;min_bytes&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-           &lt;span class=&quot;nf&quot;&gt;Err&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;Error&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;new&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;ErrorKind&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;UnexpectedEof&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-                          &lt;span class=&quot;nd&quot;&gt;format!&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;expected {} but got {} bytes&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
-                                  &lt;span class=&quot;n&quot;&gt;min_bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)))&lt;/span&gt;
-       &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;else&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-           &lt;span class=&quot;nf&quot;&gt;Ok&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;n&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
-       &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
-
-&lt;p&gt;Then, at the top level of our program, we have
-a task executor, where&lt;/p&gt;
-
-&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;k&quot;&gt;type&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Task&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Generator&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Value&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;AsyncStatus&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Return&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
-
-&lt;p&gt;The task executor owns a collection of tasks and is responsible
-for running them when they are ready.
-When a task runs and needs to pend on some I/O, it yields
-back what it’s currently waiting on, for example a file descriptor.
-When none of the tasks can make any progress, the executor calls
-a OS-specific API like &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;kevent()&lt;/code&gt; to wait until more progress can be made.&lt;/p&gt;
-
-&lt;p&gt;Unlike with fibers/green threading, it remains very clear where
-switches-between-tasks can take place.
-Unlike with promises, we don’t have to be constantly allocating closures
-on the heap. Generator-based async-I/O seems like an all-around win!&lt;/p&gt;
-
-&lt;p&gt;&lt;a href=&quot;https://www.reddit.com/r/rust/comments/4li9v2/generators_are_the_missing_piece_for_async/&quot;&gt;(discussion on /r/rust)&lt;/a&gt;&lt;/p&gt;
-</description>
-                                <pubDate>Sat, 28 May 2016 00:00:00 -0400</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2016/05/28/async-generators.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2016/05/28/async-generators.html</guid>
                         </item>
                 
         </channel>
