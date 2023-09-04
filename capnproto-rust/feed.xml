@@ -137,7 +137,8 @@ which can sometimes be a problem for microcontroller targets and kernel programm
 (See &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/issues/221&quot;&gt;this issue&lt;/a&gt;
 for some discussion.)&lt;/p&gt;
 
-&lt;p&gt;Starting with version 0.18, the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp&lt;/code&gt; crate now has an &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;alloc&lt;/code&gt; Cargo feature,
+&lt;p&gt;Starting with version 0.18, the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp&lt;/code&gt; crate now has an
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/82aa8a2163b5eadaa83aa2716ce781fc78107c2c/capnp/Cargo.toml#L26&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;alloc&lt;/code&gt; Cargo feature&lt;/a&gt;,
 which can be disabled to remove the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;alloc&lt;/code&gt; dependency.&lt;/p&gt;
 
 &lt;p&gt;A side benefit of this change is that now error handling in capnproto-rust
