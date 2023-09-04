@@ -1,0 +1,179 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title> 0.18 — lazy UTF-8 and no-alloc </title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<link rel="stylesheet" href="/capnproto-rust/css/main.css" type="text/css" />
+<link rel="stylesheet" href="/capnproto-rust/css/syntax.css" type="text/css" />
+<link rel="shortcut icon" href="/capnproto-rust/favicon.png">
+</head>
+<body>
+<h1>
+0.18 — lazy UTF-8 and no-alloc
+</h1>
+
+<p>
+04 Sep 2023
+<p>
+
+<p>New release alert!
+Version 0.18 of <a href="https://github.com/capnproto/capnproto-rust">capnproto-rust</a>
+is now <a href="https://crates.io/crates/capnp">available on crates.io</a>.</p>
+
+<p>If you use capnproto-rust on data with
+the <a href="https://capnproto.org/language.html#built-in-types"><code class="language-plaintext highlighter-rouge">Text</code> built-in type</a>,
+then it’s likely that this release will require some
+updates to your code.
+But don’t worry — the changes are straightforward and they bring some
+important benefits.</p>
+
+<h2 id="lazy-utf-8-validation">lazy UTF-8 validation</h2>
+
+<p>Suppose we have the following struct defined in a Cap’n Proto schema:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>struct Foo {
+  oneText @0 :Text;
+  anotherText @1 :Text;
+}
+</code></pre></div></div>
+
+<p>Then, in Rust, these <code class="language-plaintext highlighter-rouge">Text</code> fields can be accessed through the <code class="language-plaintext highlighter-rouge">text::Reader</code> type:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">let</span> <span class="n">my_foo</span><span class="p">:</span> <span class="nn">foo</span><span class="p">::</span><span class="n">Reader</span> <span class="o">=</span> <span class="o">...</span><span class="p">;</span>
+<span class="k">let</span> <span class="n">one_text</span><span class="p">:</span> <span class="nn">capnp</span><span class="p">::</span><span class="nn">text</span><span class="p">::</span><span class="n">Reader</span><span class="o">&lt;</span><span class="nv">'_</span><span class="o">&gt;</span> <span class="o">=</span> <span class="n">my_foo</span><span class="nf">.get_one_text</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+<span class="k">let</span> <span class="n">another_text</span><span class="p">:</span> <span class="nn">capnp</span><span class="p">::</span><span class="nn">text</span><span class="p">::</span><span class="n">Reader</span><span class="o">&lt;</span><span class="nv">'_</span><span class="o">&gt;</span> <span class="o">=</span> <span class="n">my_foo</span><span class="nf">.get_another_text</span><span class="p">()</span><span class="o">?</span><span class="p">;</span>
+</code></pre></div></div>
+
+<p>But what exactly is a <code class="language-plaintext highlighter-rouge">text::Reader</code>?</p>
+
+<h3 id="the-old-definition">the old definition</h3>
+
+<p>In previous versions of capnproto-rust, the <code class="language-plaintext highlighter-rouge">text::Reader</code> type
+was an alias to Rust’s <code class="language-plaintext highlighter-rouge">&amp;str</code> type:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">pub</span> <span class="k">mod</span> <span class="n">text</span> <span class="p">{</span>
+  <span class="k">type</span> <span class="n">Reader</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="o">=</span> <span class="o">&amp;</span><span class="nv">'a</span> <span class="nb">str</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>At first glance, this seems like a perfect fit.
+A Cap’n Proto <code class="language-plaintext highlighter-rouge">Text</code> value is required to
+contain valid UTF-8 data, just like a Rust <code class="language-plaintext highlighter-rouge">&amp;str</code>,
+and a <code class="language-plaintext highlighter-rouge">text::Reader</code> is meant to represent
+a reference to that data.</p>
+
+<p>However, in practice, there are some ways in which this representation
+falls short.</p>
+
+<ul>
+  <li><strong>performance</strong>: Validating UTF-8 data has a cost,
+and ideally we would like to avoid paying it multiple
+times on the same data. If <code class="language-plaintext highlighter-rouge">text::Reader</code> is just
+<code class="language-plaintext highlighter-rouge">&amp;str</code>, then we need to validate every time that we:
+    <ul>
+      <li>copy a text field from one message to another,</li>
+      <li>write a text field to a file,</li>
+      <li>write a file to a text field, or</li>
+      <li>access some sub-range of a text field.</li>
+    </ul>
+
+    <p>This goes against the general Cap’n Proto philosophy
+of doing validation as lazily as possible.</p>
+  </li>
+  <li><strong>robustness</strong> – If a text field holds corrupted data, then
+you still might want to be able to access that data, even
+if it is not valid UTF-8. For example, imagine that a text
+field holds log messages from a web server. We should
+still be able to read the messages, even if they are garbled.
+Indeed, garbled messages are probably the most interesting ones,
+as they indicate unexpected behavior.
+See <a href="https://github.com/capnproto/capnproto-rust/issues/314">this issue</a>
+for more discussion.</li>
+</ul>
+
+<h3 id="the-new-definition">the new definition</h3>
+
+<p>To address the above-noted shortcomings,
+version 0.18 of capnproto-rust defines <code class="language-plaintext highlighter-rouge">text::Reader</code>
+like this:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">pub</span> <span class="k">mod</span> <span class="n">text</span> <span class="p">{</span>
+  <span class="cd">/// Wrapper around utf-8 encoded text.</span>
+  <span class="cd">/// This is defined as a tuple struct to allow pattern matching</span>
+  <span class="cd">/// on it via byte literals (for example `text::Reader(b"hello")`).</span>
+  <span class="nd">#[derive(Copy,</span> <span class="nd">Clone,</span> <span class="nd">PartialEq)]</span>
+  <span class="k">pub</span> <span class="k">struct</span> <span class="n">Reader</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span><span class="p">(</span><span class="k">pub</span> <span class="o">&amp;</span><span class="nv">'a</span> <span class="p">[</span><span class="nb">u8</span><span class="p">]);</span>
+
+  <span class="k">impl</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="n">Reader</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="p">{</span>
+    <span class="k">pub</span> <span class="k">fn</span> <span class="nf">as_bytes</span><span class="p">(</span><span class="k">self</span><span class="p">)</span> <span class="k">-&gt;</span> <span class="o">&amp;</span><span class="nv">'a</span> <span class="p">[</span><span class="nb">u8</span><span class="p">]</span> <span class="p">{</span> <span class="o">...</span> <span class="p">}</span>
+    <span class="k">pub</span> <span class="k">fn</span> <span class="nf">to_str</span><span class="p">(</span><span class="k">self</span><span class="p">)</span> <span class="k">-&gt;</span> <span class="nb">Result</span><span class="o">&lt;&amp;</span><span class="nv">'a</span> <span class="nb">str</span><span class="p">,</span> <span class="n">Utf8Error</span><span class="o">&gt;</span> <span class="p">{</span> <span class="o">...</span> <span class="p">}</span>
+    <span class="k">pub</span> <span class="k">fn</span> <span class="nf">to_string</span><span class="p">(</span><span class="k">self</span><span class="p">)</span> <span class="k">-&gt;</span> <span class="nb">Result</span><span class="o">&lt;</span><span class="nb">String</span><span class="p">,</span> <span class="n">Utf8Error</span><span class="o">&gt;</span> <span class="p">{</span> <span class="o">...</span> <span class="p">}</span>
+  <span class="p">}</span>
+
+  <span class="k">impl</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="nb">From</span><span class="o">&lt;&amp;</span><span class="nv">'a</span> <span class="nb">str</span><span class="o">&gt;</span> <span class="k">for</span> <span class="n">Reader</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="p">{</span> <span class="o">...</span> <span class="p">}</span>
+  <span class="k">impl</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="nb">From</span><span class="o">&lt;&amp;</span><span class="nv">'a</span> <span class="p">[</span><span class="nb">u8</span><span class="p">]</span><span class="o">&gt;</span> <span class="k">for</span> <span class="n">Reader</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="p">{</span> <span class="o">...</span> <span class="p">}}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+<p>Now consumers can easily access the underlying data, via <code class="language-plaintext highlighter-rouge">as_bytes()</code>,
+and getting it as a <code class="language-plaintext highlighter-rouge">&amp;str</code> or <code class="language-plaintext highlighter-rouge">String</code> just requires an extra <code class="language-plaintext highlighter-rouge">to_str()</code>
+or <code class="language-plaintext highlighter-rouge">to_string()</code> call.</p>
+
+<p>When setting text fields in a message, you will now need to
+insert some <code class="language-plaintext highlighter-rouge">.into()</code> calls to convert from a <code class="language-plaintext highlighter-rouge">str</code> or <code class="language-plaintext highlighter-rouge">String</code>
+into a <code class="language-plaintext highlighter-rouge">text::Reader</code>, like this:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">let</span> <span class="n">name</span><span class="p">:</span> <span class="o">&amp;</span><span class="nb">str</span> <span class="o">=</span> <span class="s">"alice"</span><span class="p">;</span>
+<span class="k">let</span> <span class="k">mut</span> <span class="n">my_foo</span><span class="p">:</span> <span class="nn">foo</span><span class="p">::</span><span class="n">Builder</span> <span class="o">=</span> <span class="o">...</span><span class="p">;</span>
+<span class="n">my_foo</span><span class="nf">.set_one_text</span><span class="p">(</span><span class="s">"hello world"</span><span class="nf">.into</span><span class="p">())</span><span class="o">?</span><span class="p">;</span>
+<span class="n">my_foo</span><span class="nf">.set_another_text</span><span class="p">(</span><span class="nd">format!</span><span class="p">(</span><span class="s">"hello {name}"</span><span class="p">)[</span><span class="o">..</span><span class="p">]</span><span class="nf">.into</span><span class="p">())</span><span class="o">?</span><span class="p">;</span>
+</code></pre></div></div>
+
+<p>All this is admittedly more verbose than it was before,
+but it’s in keeping with the general spirit of capnproto-rust:
+we are willing to introduce some verbosity
+if that’s what it takes to model Cap’n Proto data
+in a satisfactory way.</p>
+
+<h2 id="no-alloc-mode">no-alloc mode</h2>
+
+<p>Another new feature is no-alloc mode.</p>
+
+<p>In version 0.13, capnproto-rust
+<a href="/capnproto-rust/2020/06/06/no-std-support.html">gained support for no_std environments</a>.
+However, it still depended on the <a href="https://doc.rust-lang.org/alloc/"><code class="language-plaintext highlighter-rouge">alloc</code></a> crate,
+which can sometimes be a problem for microcontroller targets and kernel programming.
+(See <a href="https://github.com/capnproto/capnproto-rust/issues/221">this issue</a>
+for some discussion.)</p>
+
+<p>Starting with version 0.18, the <code class="language-plaintext highlighter-rouge">capnp</code> crate now has an <code class="language-plaintext highlighter-rouge">alloc</code> Cargo feature,
+which can be disabled to remove the <code class="language-plaintext highlighter-rouge">alloc</code> dependency.</p>
+
+<p>A side benefit of this change is that now error handling in capnproto-rust
+is much less dependent on heap allocation, and so should have better
+performance and be more reliable.</p>
+
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+
+<div>
+ <a href="https://www.github.com/capnproto/capnproto-rust">
+   capnproto-rust on github
+ </a>
+</div>
+
+<div>
+ <a href="/capnproto-rust/index.html">
+   more posts
+ </a>
+</div>
+
+<a href="/capnproto-rust/feed.xml">
+<img src="/capnproto-rust/assets/rss.png"
+     width="14"/>
+</a>
+
+
+</body>

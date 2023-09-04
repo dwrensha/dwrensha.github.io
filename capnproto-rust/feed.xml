@@ -7,6 +7,150 @@
                 <atom:link href="http://dwrensha.github.io/capnproto-rust/feed.xml" rel="self" type="application/rss+xml" />
                 
                         <item>
+                                <title>0.18 — lazy UTF-8 and no-alloc</title>
+                                <description>&lt;p&gt;New release alert!
+Version 0.18 of &lt;a href=&quot;https://github.com/capnproto/capnproto-rust&quot;&gt;capnproto-rust&lt;/a&gt;
+is now &lt;a href=&quot;https://crates.io/crates/capnp&quot;&gt;available on crates.io&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;If you use capnproto-rust on data with
+the &lt;a href=&quot;https://capnproto.org/language.html#built-in-types&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Text&lt;/code&gt; built-in type&lt;/a&gt;,
+then it’s likely that this release will require some
+updates to your code.
+But don’t worry — the changes are straightforward and they bring some
+important benefits.&lt;/p&gt;
+
+&lt;h2 id=&quot;lazy-utf-8-validation&quot;&gt;lazy UTF-8 validation&lt;/h2&gt;
+
+&lt;p&gt;Suppose we have the following struct defined in a Cap’n Proto schema:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;struct Foo {
+  oneText @0 :Text;
+  anotherText @1 :Text;
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Then, in Rust, these &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Text&lt;/code&gt; fields can be accessed through the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;text::Reader&lt;/code&gt; type:&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;my_foo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;foo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Reader&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;one_text&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;capnp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;text&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Reader&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;_&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;my_foo&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.get_one_text&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;?&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;another_text&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;capnp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;text&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Reader&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;_&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;my_foo&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.get_another_text&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;?&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;But what exactly is a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;text::Reader&lt;/code&gt;?&lt;/p&gt;
+
+&lt;h3 id=&quot;the-old-definition&quot;&gt;the old definition&lt;/h3&gt;
+
+&lt;p&gt;In previous versions of capnproto-rust, the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;text::Reader&lt;/code&gt; type
+was an alias to Rust’s &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;str&lt;/code&gt; type:&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mod&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;text&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;type&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Reader&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;str&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;At first glance, this seems like a perfect fit.
+A Cap’n Proto &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Text&lt;/code&gt; value is required to
+contain valid UTF-8 data, just like a Rust &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;str&lt;/code&gt;,
+and a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;text::Reader&lt;/code&gt; is meant to represent
+a reference to that data.&lt;/p&gt;
+
+&lt;p&gt;However, in practice, there are some ways in which this representation
+falls short.&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;strong&gt;performance&lt;/strong&gt;: Validating UTF-8 data has a cost,
+and ideally we would like to avoid paying it multiple
+times on the same data. If &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;text::Reader&lt;/code&gt; is just
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;str&lt;/code&gt;, then we need to validate every time that we:
+    &lt;ul&gt;
+      &lt;li&gt;copy a text field from one message to another,&lt;/li&gt;
+      &lt;li&gt;write a text field to a file,&lt;/li&gt;
+      &lt;li&gt;write a file to a text field, or&lt;/li&gt;
+      &lt;li&gt;access some sub-range of a text field.&lt;/li&gt;
+    &lt;/ul&gt;
+
+    &lt;p&gt;This goes against the general Cap’n Proto philosophy
+of doing validation as lazily as possible.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;&lt;strong&gt;robustness&lt;/strong&gt; – If a text field holds corrupted data, then
+you still might want to be able to access that data, even
+if it is not valid UTF-8. For example, imagine that a text
+field holds log messages from a web server. We should
+still be able to read the messages, even if they are garbled.
+Indeed, garbled messages are probably the most interesting ones,
+as they indicate unexpected behavior.
+See &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/issues/314&quot;&gt;this issue&lt;/a&gt;
+for more discussion.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&quot;the-new-definition&quot;&gt;the new definition&lt;/h3&gt;
+
+&lt;p&gt;To address the above-noted shortcomings,
+version 0.18 of capnproto-rust defines &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;text::Reader&lt;/code&gt;
+like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mod&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;text&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;cd&quot;&gt;/// Wrapper around utf-8 encoded text.&lt;/span&gt;
+  &lt;span class=&quot;cd&quot;&gt;/// This is defined as a tuple struct to allow pattern matching&lt;/span&gt;
+  &lt;span class=&quot;cd&quot;&gt;/// on it via byte literals (for example `text::Reader(b&quot;hello&quot;)`).&lt;/span&gt;
+  &lt;span class=&quot;nd&quot;&gt;#[derive(Copy,&lt;/span&gt; &lt;span class=&quot;nd&quot;&gt;Clone,&lt;/span&gt; &lt;span class=&quot;nd&quot;&gt;PartialEq)]&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;struct&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Reader&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]);&lt;/span&gt;
+
+  &lt;span class=&quot;k&quot;&gt;impl&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Reader&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;as_bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;to_str&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;Result&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;str&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Utf8Error&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;to_string&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;Result&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;String&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Utf8Error&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+
+  &lt;span class=&quot;k&quot;&gt;impl&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;From&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;str&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Reader&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;impl&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;From&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Reader&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;}}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;p&gt;Now consumers can easily access the underlying data, via &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;as_bytes()&lt;/code&gt;,
+and getting it as a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;str&lt;/code&gt; or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;String&lt;/code&gt; just requires an extra &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;to_str()&lt;/code&gt;
+or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;to_string()&lt;/code&gt; call.&lt;/p&gt;
+
+&lt;p&gt;When setting text fields in a message, you will now need to
+insert some &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;.into()&lt;/code&gt; calls to convert from a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;str&lt;/code&gt; or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;String&lt;/code&gt;
+into a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;text::Reader&lt;/code&gt;, like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;name&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;str&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;s&quot;&gt;&quot;alice&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;my_foo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;foo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Builder&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;my_foo&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.set_one_text&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;hello world&quot;&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.into&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;())&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;?&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;my_foo&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.set_another_text&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;nd&quot;&gt;format!&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;hello {name}&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)[&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;..&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.into&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;())&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;?&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;All this is admittedly more verbose than it was before,
+but it’s in keeping with the general spirit of capnproto-rust:
+we are willing to introduce some verbosity
+if that’s what it takes to model Cap’n Proto data
+in a satisfactory way.&lt;/p&gt;
+
+&lt;h2 id=&quot;no-alloc-mode&quot;&gt;no-alloc mode&lt;/h2&gt;
+
+&lt;p&gt;Another new feature is no-alloc mode.&lt;/p&gt;
+
+&lt;p&gt;In version 0.13, capnproto-rust
+&lt;a href=&quot;/capnproto-rust/2020/06/06/no-std-support.html&quot;&gt;gained support for no_std environments&lt;/a&gt;.
+However, it still depended on the &lt;a href=&quot;https://doc.rust-lang.org/alloc/&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;alloc&lt;/code&gt;&lt;/a&gt; crate,
+which can sometimes be a problem for microcontroller targets and kernel programming.
+(See &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/issues/221&quot;&gt;this issue&lt;/a&gt;
+for some discussion.)&lt;/p&gt;
+
+&lt;p&gt;Starting with version 0.18, the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp&lt;/code&gt; crate now has an &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;alloc&lt;/code&gt; Cargo feature,
+which can be disabled to remove the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;alloc&lt;/code&gt; dependency.&lt;/p&gt;
+
+&lt;p&gt;A side benefit of this change is that now error handling in capnproto-rust
+is much less dependent on heap allocation, and so should have better
+performance and be more reliable.&lt;/p&gt;
+
+</description>
+                                <pubDate>Mon, 04 Sep 2023 00:00:00 -0400</pubDate>
+                                <link>http://dwrensha.github.io/capnproto-rust/2023/09/04/0.18-release.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2023/09/04/0.18-release.html</guid>
+                        </item>
+                
+                        <item>
                                 <title>run-time reflection</title>
                                 <description>&lt;p&gt;Version 0.17 of
 &lt;a href=&quot;https://github.com/capnproto/capnproto-rust&quot;&gt;capnproto-rust&lt;/a&gt;
@@ -964,7 +1108,7 @@ which eliminates the bad optimization.&lt;/p&gt;
                         </item>
                 
                         <item>
-                                <title>0.15 -- GATs, CapabilityServerSet, and async packing</title>
+                                <title>0.15 — GATs, CapabilityServerSet, and async packing</title>
                                 <description>&lt;p&gt;Today I am releasing version 0.15.0 of the capnproto-rust crates:
 &lt;a href=&quot;https://crates.io/crates/capnp&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp&lt;/code&gt;&lt;/a&gt;,
 &lt;a href=&quot;https://crates.io/crates/capnpc&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnpc&lt;/code&gt;&lt;/a&gt;,
@@ -1741,63 +1885,6 @@ that I later added to the capnproto-rust test suite to cover the new functionali
                                 <pubDate>Mon, 27 Feb 2017 00:00:00 -0500</pubDate>
                                 <link>http://dwrensha.github.io/capnproto-rust/2017/02/27/cargo-fuzz.html</link>
                                 <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2017/02/27/cargo-fuzz.html</guid>
-                        </item>
-                
-                        <item>
-                                <title>capnp-rpc-rust now uses futures-rs</title>
-                                <description>&lt;p&gt;The concurrency story of
-&lt;a href=&quot;https://crates.io/crates/capnp-rpc&quot;&gt;capnp-rpc-rust&lt;/a&gt;
-gets a major update in today’s version 0.8 release.
-Previously, the remote procedure call system was built
-on top of &lt;a href=&quot;https://github.com/dwrensha/gj&quot;&gt;GJ&lt;/a&gt;,
-an event loop framework designed specifically for Cap’n Proto,
-described in some of my &lt;a href=&quot;/capnproto-rust/2015/05/25/asynchronous-io-with-promises.html&quot;&gt;previous&lt;/a&gt;
-&lt;a href=&quot;/capnproto-rust/2016/01/11/async-rpc.html&quot;&gt;posts&lt;/a&gt;.
-The new version drops GJ in favor of
-&lt;a href=&quot;https://github.com/alexcrichton/futures-rs&quot;&gt;futures-rs&lt;/a&gt;,
-a library that is quickly becoming the standard
-foundation for asynchronous programming in Rust.&lt;/p&gt;
-
-&lt;p&gt;At the level of types, the update is fairly
-straightforward.
-The main asynchronous building block in GJ is the struct
-&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Promise&amp;lt;T, E&amp;gt;&lt;/code&gt;, representing a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Result&amp;lt;T, E&amp;gt;&lt;/code&gt; that might not
-be ready yet. To migrate to futures-rs, each &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;gj::Promise&amp;lt;T,E&amp;gt;&lt;/code&gt; can be translated into
-a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Box&amp;lt;futures::Future&amp;lt;Item=T,Error=E&amp;gt;&amp;gt;&lt;/code&gt;,
-and the high-level structure of a program usually does not need to change.&lt;/p&gt;
-
-&lt;p&gt;Many nice properties derive from the fact that &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Future&lt;/code&gt; is a &lt;em&gt;trait&lt;/em&gt;, not a struct,
-and does not need to be put in a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Box&lt;/code&gt;.
-Concrete types implementing &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Future&lt;/code&gt; can be used in generics,
-making it possible for combinators like &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;.then()&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;.join()&lt;/code&gt;
-to avoid heap allocations
-and to avoid losing type information.
-In particular, the typechecker can know at compile time
-whether it is safe to send a future between threads!&lt;/p&gt;
-
-&lt;p&gt;The Rust community has a growing ecosystem of libraries based on
-futures-rs, and today’s capnp-rpc-rust release
-should work well with all of them.
-For example, a Cap’n Proto method could invoke
-&lt;a href=&quot;https://crates.io/crates/futures-cpupool&quot;&gt;futures-cpupool&lt;/a&gt;
-to distribute computation-heavy work among a pool of worker threads,
-or it could use one of the emerging asynchronous database drivers
-to make queries on a remote database, or it could do,
-well, anything that can be expressed in terms of the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Future&lt;/code&gt; trait.
-As a quick demonstration, I have implemented a
-simple &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/tree/capnp-v0.8.17/capnp-rpc/examples/http-requests&quot;&gt;example&lt;/a&gt;
-that uses &lt;a href=&quot;https://github.com/tokio-rs/tokio-curl&quot;&gt;tokio-curl&lt;/a&gt;
-to make asynchronous HTTP requests.&lt;/p&gt;
-
-&lt;p&gt;There are many exciting possibilities to explore.
-If any of this sounds interesting to you, I encourage you to get involved!
-Join me for discussion at #sandstorm on freenode IRC or at the
-&lt;a href=&quot;https://gitter.im/tokio-rs/tokio&quot;&gt;tokio gitter&lt;/a&gt;.&lt;/p&gt;
-
-</description>
-                                <pubDate>Wed, 04 Jan 2017 00:00:00 -0500</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2017/01/04/rpc-futures.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2017/01/04/rpc-futures.html</guid>
                         </item>
                 
         </channel>
