@@ -1,0 +1,167 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title> 0.19 — setter ergonomics and faster reflection </title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<link rel="stylesheet" href="/capnproto-rust/css/main.css" type="text/css" />
+<link rel="stylesheet" href="/capnproto-rust/css/syntax.css" type="text/css" />
+<link rel="shortcut icon" href="/capnproto-rust/favicon.png">
+</head>
+<body>
+<h1>
+0.19 — setter ergonomics and faster reflection
+</h1>
+
+<p>
+14 Jan 2024
+<p>
+
+<p>As of today,
+version 0.19 of <a href="https://github.com/capnproto/capnproto-rust">capnproto-rust</a>
+is <a href="https://crates.io/crates/capnp">available on crates.io</a>.</p>
+
+<p>This release includes improved ergnomics and performance,
+while also having a notable breaking change involving text fields.</p>
+
+<h2 id="setter-ergonomics">setter ergonomics</h2>
+
+<p>Suppose that we have the following struct defined in a Cap’n Proto schema file:</p>
+
+<pre><code class="language-capnp">struct Cookie {
+  fortune @0 :Text;
+  numbers @1 :List(UInt16);
+}
+
+</code></pre>
+
+<p>With capnp-v0.18.0 (the previous release), to populate such a struct you would write Rust code like this:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">let</span> <span class="k">mut</span> <span class="n">message</span> <span class="o">=</span> <span class="nn">capnp</span><span class="p">::</span><span class="nn">message</span><span class="p">::</span><span class="nn">Builder</span><span class="p">::</span><span class="nf">new_default</span><span class="p">();</span>
+<span class="k">let</span> <span class="k">mut</span> <span class="n">root</span><span class="p">:</span> <span class="nn">cookie</span><span class="p">::</span><span class="n">Builder</span> <span class="o">=</span> <span class="n">message</span><span class="nf">.init_root</span><span class="p">();</span>
+<span class="n">root</span><span class="nf">.set_fortune</span><span class="p">(</span><span class="s">"This too shall pass."</span><span class="nf">.into</span><span class="p">());</span>
+<span class="k">let</span> <span class="k">mut</span> <span class="n">numbers</span> <span class="o">=</span> <span class="n">root</span><span class="nf">.init_numbers</span><span class="p">(</span><span class="mi">6</span><span class="p">);</span>
+<span class="n">numbers</span><span class="nf">.set</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">4</span><span class="p">);</span>
+<span class="n">numbers</span><span class="nf">.set</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">8</span><span class="p">);</span>
+<span class="n">numbers</span><span class="nf">.set</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">15</span><span class="p">);</span>
+<span class="n">numbers</span><span class="nf">.set</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">16</span><span class="p">);</span>
+<span class="n">numbers</span><span class="nf">.set</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">23</span><span class="p">);</span>
+<span class="n">numbers</span><span class="nf">.set</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">42</span><span class="p">);</span>
+</code></pre></div></div>
+
+<p>This is rather more verbose than you might hope.
+The setter methods <code class="language-plaintext highlighter-rouge">set_fortune()</code> and <code class="language-plaintext highlighter-rouge">set_numbers()</code> are geared toward
+accepting input from <em>other</em> Cap’n Proto messages, rather than
+from Rust-native values.
+When we want to call <code class="language-plaintext highlighter-rouge">set_fortune()</code> on a Rust-native <code class="language-plaintext highlighter-rouge">&amp;str</code>,
+we first need to convert it into a <code class="language-plaintext highlighter-rouge">capnp::text::Reader</code> via the <code class="language-plaintext highlighter-rouge">.into()</code> method.
+Similarly, the <code class="language-plaintext highlighter-rouge">set_numbers()</code> method wants a <code class="language-plaintext highlighter-rouge">primitive_list::Reader&lt;u16&gt;</code>,
+and there is no easy way for us to get one of those from a Rust-native <code class="language-plaintext highlighter-rouge">&amp;[u16]</code>.
+Therefore, we avoid that method altogether, and instead opt to use <code class="language-plaintext highlighter-rouge">init_numbers()</code>
+and to invidually set each element of the list.</p>
+
+<p>In capnp-v0.19.0, we can instead directly set these fields from Rust-native values:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">let</span> <span class="k">mut</span> <span class="n">message</span> <span class="o">=</span> <span class="nn">capnp</span><span class="p">::</span><span class="nn">message</span><span class="p">::</span><span class="nn">Builder</span><span class="p">::</span><span class="nf">new_default</span><span class="p">();</span>
+<span class="k">let</span> <span class="k">mut</span> <span class="n">root</span><span class="p">:</span> <span class="nn">cookie</span><span class="p">::</span><span class="n">Builder</span> <span class="o">=</span> <span class="n">message</span><span class="nf">.init_root</span><span class="p">();</span>
+<span class="n">root</span><span class="nf">.set_fortune</span><span class="p">(</span><span class="s">"This too shall pass."</span><span class="p">);</span>
+<span class="n">root</span><span class="nf">.set_numbers</span><span class="p">(</span><span class="o">&amp;</span><span class="p">[</span><span class="mi">4</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="mi">15</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="mi">23</span><span class="p">,</span> <span class="mi">42</span><span class="p">]);</span>
+</code></pre></div></div>
+
+<p>This is possible because the setter methods have been generalized
+to accept a value of type <code class="language-plaintext highlighter-rouge">impl SetterInput&lt;T&gt;</code>, as follows:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
+<span class="k">mod</span> <span class="n">cookie</span> <span class="p">{</span>
+  <span class="k">impl</span> <span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="n">Builder</span><span class="o">&lt;</span><span class="nv">'a</span><span class="o">&gt;</span> <span class="p">{</span>
+    <span class="k">pub</span> <span class="k">fn</span> <span class="nf">set_fortune</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span> <span class="k">self</span><span class="p">,</span> <span class="k">impl</span> <span class="n">SetterInput</span><span class="o">&lt;</span><span class="nn">capnp</span><span class="p">::</span><span class="nn">text</span><span class="p">::</span><span class="nb">Owned</span><span class="o">&gt;</span><span class="p">)</span> <span class="p">{</span>
+        <span class="o">...</span>
+    <span class="p">}</span>
+    <span class="k">pub</span> <span class="k">fn</span> <span class="nf">set_numbers</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span> <span class="k">self</span><span class="p">,</span>
+                       <span class="k">impl</span> <span class="n">SetterInput</span><span class="o">&lt;</span><span class="nn">capnp</span><span class="p">::</span><span class="nn">primitive_list</span><span class="p">::</span><span class="nb">Owned</span><span class="o">&lt;</span><span class="nb">u16</span><span class="o">&gt;&gt;</span><span class="p">)</span> <span class="p">{</span>
+        <span class="o">...</span>
+    <span class="p">}</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+
+</code></pre></div></div>
+
+<p>The trait <code class="language-plaintext highlighter-rouge">SetterInput&lt;capnp::text::Owned&gt;</code> is implemented both by
+<code class="language-plaintext highlighter-rouge">capnp::text::Reader</code> and by <code class="language-plaintext highlighter-rouge">&amp;str</code>, and
+the trait <code class="language-plaintext highlighter-rouge">SetterInput&lt;capnp::primitive_list::Owned&lt;u16&gt;&gt;</code>
+is implemented by both <code class="language-plaintext highlighter-rouge">capnp::primitive_list::Reader&lt;u16&gt;</code>
+and by <code class="language-plaintext highlighter-rouge">&amp;[u16]</code>.</p>
+
+<h3 id="breaking-change">breaking change</h3>
+
+<p>Unfortunately, this generalization does cause some breakage.
+If we did not update the old line</p>
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">root</span><span class="nf">.set_fortune</span><span class="p">(</span><span class="s">"This too shall pass."</span><span class="nf">.into</span><span class="p">());</span>
+</code></pre></div></div>
+<p>then it would now gives us a type error:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>error[E0283]: type annotations needed
+...
+    = note: multiple `impl`s satisfying `_: SetterInput&lt;capnp::text::Owned&gt;` found in the `capnp` crate:
+            - impl&lt;'a&gt; SetterInput&lt;capnp::text::Owned&gt; for &amp;'a String;
+            - impl&lt;'a&gt; SetterInput&lt;capnp::text::Owned&gt; for &amp;'a str;
+            - impl&lt;'a&gt; SetterInput&lt;capnp::text::Owned&gt; for capnp::text::Reader&lt;'a&gt;;
+note: required by a bound in `cookie::Builder::&lt;'a&gt;::set_fortune`
+
+</code></pre></div></div>
+
+<p>The problem is that <code class="language-plaintext highlighter-rouge">.into()</code> does not know which type to target.
+The fix is to remove the <code class="language-plaintext highlighter-rouge">.into()</code>.</p>
+
+<p>Note that the need for such <code class="language-plaintext highlighter-rouge">.into()</code> calls was in fact only recently
+introduced, in the release of
+<a href="/capnproto-rust/2023/09/04/0.18-release.html">version 0.18</a>.
+Probably we should have
+delayed that release until we had a solution like the
+the present <code class="language-plaintext highlighter-rouge">impl SetterInput</code> generalization,
+thereby minimizing the churn of downstream code.</p>
+
+<h2 id="faster-reflection">faster reflection</h2>
+
+<p>The <a href="/capnproto-rust/2023/05/08/run-time-reflection.html">0.17 release</a>
+added support for run-time reflection,
+including a <code class="language-plaintext highlighter-rouge">DynamicStruct</code> type that supports
+looking up fields by name.
+The initial implementation
+worked by linearly scanning a struct’s fields.
+That works fine for small structs, but can
+get expensive when there are a large number of fields.</p>
+
+<p>In <a href="https://github.com/capnproto/capnproto-rust/pull/469">#469</a>,
+<a href="https://github.com/quartox">@quartox</a> updated
+the implementation to use binary search,
+resulting in a significant performance increase,
+and matching the capnproto-c++ implementation.</p>
+
+<p>This change involved add a new field to the static <code class="language-plaintext highlighter-rouge">RawStructSchema</code> value included
+in the generated code for each Cap’n Proto type.</p>
+
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+
+<div>
+ <a href="https://www.github.com/capnproto/capnproto-rust">
+   capnproto-rust on github
+ </a>
+</div>
+
+<div>
+ <a href="/capnproto-rust/index.html">
+   more posts
+ </a>
+</div>
+
+<a href="/capnproto-rust/feed.xml">
+<img src="/capnproto-rust/assets/rss.png"
+     width="14"/>
+</a>
+
+
+</body>
