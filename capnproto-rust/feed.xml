@@ -7,7 +7,7 @@
                 <atom:link href="http://dwrensha.github.io/capnproto-rust/feed.xml" rel="self" type="application/rss+xml" />
                 
                         <item>
-                                <title>0.19 — setter ergonomics and faster reflection</title>
+                                <title>0.19 — ergonomic setters and faster reflection</title>
                                 <description>&lt;p&gt;As of today,
 version 0.19 of &lt;a href=&quot;https://github.com/capnproto/capnproto-rust&quot;&gt;capnproto-rust&lt;/a&gt;
 is &lt;a href=&quot;https://crates.io/crates/capnp&quot;&gt;available on crates.io&lt;/a&gt;.&lt;/p&gt;
