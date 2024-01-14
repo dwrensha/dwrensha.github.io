@@ -7,6 +7,138 @@
                 <atom:link href="http://dwrensha.github.io/capnproto-rust/feed.xml" rel="self" type="application/rss+xml" />
                 
                         <item>
+                                <title>0.19 — setter ergonomics and faster reflection</title>
+                                <description>&lt;p&gt;As of today,
+version 0.19 of &lt;a href=&quot;https://github.com/capnproto/capnproto-rust&quot;&gt;capnproto-rust&lt;/a&gt;
+is &lt;a href=&quot;https://crates.io/crates/capnp&quot;&gt;available on crates.io&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;This release includes improved ergnomics and performance,
+while also having a notable breaking change involving text fields.&lt;/p&gt;
+
+&lt;h2 id=&quot;setter-ergonomics&quot;&gt;setter ergonomics&lt;/h2&gt;
+
+&lt;p&gt;Suppose that we have the following struct defined in a Cap’n Proto schema file:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&quot;language-capnp&quot;&gt;struct Cookie {
+  fortune @0 :Text;
+  numbers @1 :List(UInt16);
+}
+
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;With capnp-v0.18.0 (the previous release), to populate such a struct you would write Rust code like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;message&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;capnp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;message&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;Builder&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;new_default&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;root&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;cookie&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Builder&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;message&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.init_root&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;root&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.set_fortune&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;This too shall pass.&quot;&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.into&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;());&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;numbers&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;root&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.init_numbers&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;6&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;numbers&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.set&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;4&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;numbers&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.set&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;1&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;numbers&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.set&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;15&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;numbers&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.set&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;16&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;numbers&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.set&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;23&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;numbers&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.set&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;3&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;42&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;This is rather more verbose than you might hope.
+The setter methods &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;set_fortune()&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;set_numbers()&lt;/code&gt; are geared toward
+accepting input from &lt;em&gt;other&lt;/em&gt; Cap’n Proto messages, rather than
+from Rust-native values.
+When we want to call &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;set_fortune()&lt;/code&gt; on a Rust-native &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;str&lt;/code&gt;,
+we first need to convert it into a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp::text::Reader&lt;/code&gt; via the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;.into()&lt;/code&gt; method.
+Similarly, the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;set_numbers()&lt;/code&gt; method wants a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;primitive_list::Reader&amp;lt;u16&amp;gt;&lt;/code&gt;,
+and there is no easy way for us to get one of those from a Rust-native &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;[u16]&lt;/code&gt;.
+Therefore, we avoid that method altogether, and instead opt to use &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;init_numbers()&lt;/code&gt;
+and to invidually set each element of the list.&lt;/p&gt;
+
+&lt;p&gt;In capnp-v0.19.0, we can instead directly set these fields from Rust-native values:&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;message&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;capnp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;message&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;Builder&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;new_default&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt;
+&lt;span class=&quot;k&quot;&gt;let&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;root&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;cookie&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Builder&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;=&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;message&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.init_root&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;();&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;root&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.set_fortune&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;This too shall pass.&quot;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;);&lt;/span&gt;
+&lt;span class=&quot;n&quot;&gt;root&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.set_numbers&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;4&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;15&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;16&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;23&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;42&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;]);&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;This is possible because the setter methods have been generalized
+to accept a value of type &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;impl SetterInput&amp;lt;T&amp;gt;&lt;/code&gt;, as follows:&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;
+&lt;span class=&quot;k&quot;&gt;mod&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;cookie&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;impl&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Builder&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nv&quot;&gt;&apos;a&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;set_fortune&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;impl&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;SetterInput&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;capnp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;text&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;Owned&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;set_numbers&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+                       &lt;span class=&quot;k&quot;&gt;impl&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;SetterInput&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;capnp&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nn&quot;&gt;primitive_list&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;Owned&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u16&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+        &lt;span class=&quot;o&quot;&gt;...&lt;/span&gt;
+    &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;The trait &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;SetterInput&amp;lt;capnp::text::Owned&amp;gt;&lt;/code&gt; is implemented both by
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp::text::Reader&lt;/code&gt; and by &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;str&lt;/code&gt;, and
+the trait &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;SetterInput&amp;lt;capnp::primitive_list::Owned&amp;lt;u16&amp;gt;&amp;gt;&lt;/code&gt;
+is implemented by both &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp::primitive_list::Reader&amp;lt;u16&amp;gt;&lt;/code&gt;
+and by &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;[u16]&lt;/code&gt;.&lt;/p&gt;
+
+&lt;h3 id=&quot;breaking-change&quot;&gt;breaking change&lt;/h3&gt;
+
+&lt;p&gt;Unfortunately, this generalization does cause some breakage.
+If we did not update the old line&lt;/p&gt;
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;n&quot;&gt;root&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.set_fortune&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;s&quot;&gt;&quot;This too shall pass.&quot;&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.into&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;());&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+&lt;p&gt;then it would now gives us a type error:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;error[E0283]: type annotations needed
+...
+    = note: multiple `impl`s satisfying `_: SetterInput&amp;lt;capnp::text::Owned&amp;gt;` found in the `capnp` crate:
+            - impl&amp;lt;&apos;a&amp;gt; SetterInput&amp;lt;capnp::text::Owned&amp;gt; for &amp;amp;&apos;a String;
+            - impl&amp;lt;&apos;a&amp;gt; SetterInput&amp;lt;capnp::text::Owned&amp;gt; for &amp;amp;&apos;a str;
+            - impl&amp;lt;&apos;a&amp;gt; SetterInput&amp;lt;capnp::text::Owned&amp;gt; for capnp::text::Reader&amp;lt;&apos;a&amp;gt;;
+note: required by a bound in `cookie::Builder::&amp;lt;&apos;a&amp;gt;::set_fortune`
+
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;The problem is that &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;.into()&lt;/code&gt; does not know which type to target.
+The fix is to remove the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;.into()&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;Note that the need for such &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;.into()&lt;/code&gt; calls was in fact only recently
+introduced, in the release of
+&lt;a href=&quot;/capnproto-rust/2023/09/04/0.18-release.html&quot;&gt;version 0.18&lt;/a&gt;.
+Probably we should have
+delayed that release until we had a solution like the
+the present &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;impl SetterInput&lt;/code&gt; generalization,
+thereby minimizing the churn of downstream code.&lt;/p&gt;
+
+&lt;h2 id=&quot;faster-reflection&quot;&gt;faster reflection&lt;/h2&gt;
+
+&lt;p&gt;The &lt;a href=&quot;/capnproto-rust/2023/05/08/run-time-reflection.html&quot;&gt;0.17 release&lt;/a&gt;
+added support for run-time reflection,
+including a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;DynamicStruct&lt;/code&gt; type that supports
+looking up fields by name.
+The initial implementation
+worked by linearly scanning a struct’s fields.
+That works fine for small structs, but can
+get expensive when there are a large number of fields.&lt;/p&gt;
+
+&lt;p&gt;In &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/pull/469&quot;&gt;#469&lt;/a&gt;,
+&lt;a href=&quot;https://github.com/quartox&quot;&gt;@quartox&lt;/a&gt; updated
+the implementation to use binary search,
+resulting in a significant performance increase,
+and matching the capnproto-c++ implementation.&lt;/p&gt;
+
+&lt;p&gt;This change involved add a new field to the static &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;RawStructSchema&lt;/code&gt; value included
+in the generated code for each Cap’n Proto type.&lt;/p&gt;
+
+</description>
+                                <pubDate>Sun, 14 Jan 2024 00:00:00 -0500</pubDate>
+                                <link>http://dwrensha.github.io/capnproto-rust/2024/01/14/0.19-release.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2024/01/14/0.19-release.html</guid>
+                        </item>
+                
+                        <item>
                                 <title>0.18 — lazy UTF-8 and no-alloc</title>
                                 <description>&lt;p&gt;New release alert!
 Version 0.18 of &lt;a href=&quot;https://github.com/capnproto/capnproto-rust&quot;&gt;capnproto-rust&lt;/a&gt;
@@ -1816,76 +1948,6 @@ exactly what you need!&lt;/p&gt;
                                 <pubDate>Fri, 06 Dec 2019 00:00:00 -0500</pubDate>
                                 <link>http://dwrensha.github.io/capnproto-rust/2019/12/06/async-await.html</link>
                                 <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2019/12/06/async-await.html</guid>
-                        </item>
-                
-                        <item>
-                                <title>cargo-fuzz findings</title>
-                                <description>&lt;p&gt;After the
-&lt;a href=&quot;https://www.reddit.com/r/rust/comments/5va0mi/cargofuzz_an_easy_way_to_fuzz_your_crates/&quot;&gt;announcement&lt;/a&gt;
-of &lt;a href=&quot;https://github.com/rust-fuzz/cargo-fuzz&quot;&gt;cargo-fuzz&lt;/a&gt; last week,
-I decided to try using it to search for bugs in capnproto-rust.
-For a long time I had been meaning to try out
-&lt;a href=&quot;https://github.com/rust-fuzz/afl.rs&quot;&gt;afl.rs&lt;/a&gt;,
-a similar fuzz-testing tool about which I had heard lots of good things,
-but its nontrivial setup costs were enough to deter me.
-Fortunately, cargo-fuzz is very simple and fast to get running.
-It quickly found several issues in capnproto-rust, all of which have been fixed
-in the &lt;a href=&quot;https://crates.io/crates/capnp&quot;&gt;latest release&lt;/a&gt;.&lt;/p&gt;
-
-&lt;h4 id=&quot;panic-on-invalid-input-fixed-in-6f9bbdca&quot;&gt;Panic on invalid input (fixed in &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/6f9bbdca5f77146f6f1ff0297295c3fded3a01a6&quot;&gt;6f9bbdca&lt;/a&gt;)&lt;/h4&gt;
-
-&lt;p&gt;The original
-&lt;a href=&quot;https://github.com/sandstorm-io/capnproto/blob/01f6d5e4ff05fcd67e968b50120dba3fbbb38afb/c%2B%2B/src/capnp/layout.c%2B%2B#L1875&quot;&gt;C++ code&lt;/a&gt;
-suggests that the branches for dealing with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Far&lt;/code&gt; pointers in
-&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;total_size()&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;copy_pointer()&lt;/code&gt; are unreachable,
-so I had translated them into panics.
-It turns out that these branches can in fact be reached
-due to invalid input, rather than any bugs in the code.
-In the C++ version, this means that a somewhat
-misleading exception will be thrown;
-I’ve submitted &lt;a href=&quot;https://github.com/sandstorm-io/capnproto/pull/421&quot;&gt;a pull request&lt;/a&gt;
-to make the exception more accurate.
-The problem is more serious in the Rust version,
-because Rust makes a sharp distinction between panics and error &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Result&lt;/code&gt;s.&lt;/p&gt;
-
-&lt;h4 id=&quot;cpu-amplifications-fixed-in-e89f162b-66def413&quot;&gt;CPU amplifications (fixed in &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/e89f162b3545096aec77a62157463437d6959ac5&quot;&gt;e89f162b&lt;/a&gt;, &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/66def4134e8b4fbc2459d77e72717e445175879c&quot;&gt;66def413&lt;/a&gt;)&lt;/h4&gt;
-
-&lt;p&gt;One way to attempt to mount a denial-of-service attack on a
-consumer of Cap’n Proto messages is to carefully craft messages
-that could trick the consumer into doing lots of work. For example,
-if you send a cyclic structure, the consumer might go into an infinite loop
-trying to read it.
-To protect against such attacks, message readers in capnproto-rust
-have an adjustable traversal limit, indicating how many bytes
-are allowed to be read before an error is returned.
-Reads of zero-sized structs should also count against
-this limit, as was observed in these
-&lt;a href=&quot;https://github.com/sandstorm-io/capnproto/blob/f29bb0dafbe081960f9b508528138d5f99f83b7b/security-advisories/2015-03-02-2-all-cpu-amplification.md&quot;&gt;bug&lt;/a&gt;
-&lt;a href=&quot;https://github.com/sandstorm-io/capnproto/blob/f29bb0dafbe081960f9b508528138d5f99f83b7b/security-advisories/2015-03-05-0-c%2B%2B-addl-cpu-amplification.md&quot;&gt;reports&lt;/a&gt;
-for capnproto-c++ in 2015.
-I thought that I had completely updated capnproto-rust with
-fixes for this problem, but apparently I had missed two cases. :-(&lt;/p&gt;
-
-&lt;h4 id=&quot;panics-on-todos-fixed-in-4c8d5f3-77dc713b-10f37267-3521d4e2&quot;&gt;Panics on TODOs (fixed in &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/4c8d5f369335dc6deef6f9d1e818da5d47e2a36d&quot;&gt;4c8d5f3&lt;/a&gt;, &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/77dc713b8486bf61fe657cb82f5d6cb351e76306&quot;&gt;77dc713b&lt;/a&gt;, &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/10f37267e3c94d861e946f91dada61fa4dc085ee&quot;&gt;10f37267&lt;/a&gt;, &lt;a href=&quot;https://github.com/dwrensha/capnproto-rust/commit/3521d4e25877d038154350d9ea5621779724ca5c&quot;&gt;3521d4e2&lt;/a&gt;)&lt;/h4&gt;
-
-&lt;p&gt;The fuzzer managed to find some explicit panics in capnproto-rust
-that were filling in holes of unimplemented functionality.
-I had forgotten that such holes still existed.
-After cargo-fuzz found these,
-I went ahead and implemented the functionality.
-At first I was too lazy to write a test case to cover the new code,
-but before going to bed that night I did
-set up cargo-fuzz to run on it.
-By the next morning, cargo-fuzz had found a memory safety issue
-in the new code! Even better, the test case it generated
-was rather clever and gave me a good starting point for writing the
-&lt;a href=&quot;https://github.com/dwrensha/capnpc-rust/blob/4bd89ab2fccc1386b3b608a663e4adfbb199d695/test/test.rs#L772-L820&quot;&gt;test&lt;/a&gt;
-that I later added to the capnproto-rust test suite to cover the new functionality.&lt;/p&gt;
-
-</description>
-                                <pubDate>Mon, 27 Feb 2017 00:00:00 -0500</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2017/02/27/cargo-fuzz.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2017/02/27/cargo-fuzz.html</guid>
                         </item>
                 
         </channel>
