@@ -108,7 +108,7 @@ The fix is to remove the &lt;code class=&quot;language-plaintext highlighter-rou
 introduced, in the release of
 &lt;a href=&quot;/capnproto-rust/2023/09/04/0.18-release.html&quot;&gt;version 0.18&lt;/a&gt;.
 Probably we should have
-delayed that release until we had a solution like the
+delayed that release until we had a solution like
 the present &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;impl SetterInput&lt;/code&gt; generalization,
 thereby minimizing the churn of downstream code.&lt;/p&gt;
 
