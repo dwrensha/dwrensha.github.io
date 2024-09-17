@@ -27,12 +27,12 @@ while also having a notable breaking change involving text fields.</p>
 
 <p>Suppose that we have the following struct defined in a Cap’n Proto schema file:</p>
 
-<pre><code class="language-capnp">struct Cookie {
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>struct Cookie {
   fortune @0 :Text;
   numbers @1 :List(UInt16);
 }
 
-</code></pre>
+</code></pre></div></div>
 
 <p>With capnp-v0.18.0 (the previous release), to populate such a struct you would write Rust code like this:</p>
 

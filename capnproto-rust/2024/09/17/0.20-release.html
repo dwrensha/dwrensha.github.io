@@ -1,0 +1,283 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title> 0.20 — streaming with backpressure </title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<link rel="stylesheet" href="/capnproto-rust/css/main.css" type="text/css" />
+<link rel="stylesheet" href="/capnproto-rust/css/syntax.css" type="text/css" />
+<link rel="shortcut icon" href="/capnproto-rust/favicon.png">
+</head>
+<body>
+<h1>
+0.20 — streaming with backpressure
+</h1>
+
+<p>
+17 Sep 2024
+<p>
+
+<p>Version 0.20 of <a href="https://github.com/capnproto/capnproto-rust">capnproto-rust</a>
+is now <a href="https://crates.io/crates/capnp">available on crates.io</a>.
+In this release, the library has new built-in support for
+<a href="https://capnproto.org/news/2020-04-23-capnproto-0.8.html#multi-stream-flow-control">streaming</a>.</p>
+
+<h2 id="the-stream-keyword">the <code class="language-plaintext highlighter-rouge">stream</code> keyword</h2>
+
+<p>Suppose we have the following interface defined
+in a capnp <a href="https://capnproto.org/language.html">schema file</a>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>interface ByteSink {
+  # A destination for a sequence of bytes.
+
+  write @0 (chunk :Data);
+  # Writes a chunk of bytes.
+
+  end @1 ();
+  # Indicates that no more chunks will be written.
+}
+</code></pre></div></div>
+
+<p>In Rust code, we can invoke methods on a (possibly-remote) <code class="language-plaintext highlighter-rouge">ByteSink</code> object
+through handles of type <code class="language-plaintext highlighter-rouge">byte_sink::Client</code>. For example:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cd">/// Writes all of `bytes` to `sink` in a single call to `write()`.</span>
+<span class="k">async</span> <span class="k">fn</span> <span class="nf">write_bytes_all_at_once</span><span class="p">(</span>
+    <span class="n">bytes</span><span class="p">:</span> <span class="o">&amp;</span><span class="p">[</span><span class="nb">u8</span><span class="p">],</span>
+    <span class="n">sink</span><span class="p">:</span> <span class="nn">byte_sink</span><span class="p">::</span><span class="n">Client</span><span class="p">,</span>
+<span class="p">)</span> <span class="k">-&gt;</span> <span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span> <span class="nn">capnp</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span> <span class="p">{</span>
+    <span class="c1">// Construct an RPC request for ByteSink.write().</span>
+    <span class="k">let</span> <span class="k">mut</span> <span class="n">request</span> <span class="o">=</span> <span class="n">sink</span><span class="nf">.write_request</span><span class="p">();</span>
+
+    <span class="c1">// Copy all of the bytes into the request.</span>
+    <span class="n">request</span><span class="nf">.get</span><span class="p">()</span><span class="nf">.set_chunk</span><span class="p">(</span><span class="n">bytes</span><span class="p">);</span>
+
+    <span class="c1">// Send the request and wait for the response.</span>
+    <span class="n">request</span><span class="nf">.send</span><span class="p">()</span><span class="py">.promise</span><span class="k">.await</span><span class="o">?</span><span class="p">;</span>
+
+    <span class="c1">// Send a ByteSink::end() request and wait for the response.</span>
+    <span class="n">sink</span><span class="nf">.end_request</span><span class="p">()</span><span class="nf">.send</span><span class="p">()</span><span class="py">.promise</span><span class="k">.await</span><span class="o">?</span><span class="p">;</span>
+
+    <span class="nf">Ok</span><span class="p">(())</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>However, if <code class="language-plaintext highlighter-rouge">bytes</code> is too large, we might
+observe congestion, spikes in memory usage, or
+an error like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>remote exception: Failed: Message has 8750020 words, which is too large.
+</code></pre></div></div>
+
+<p>Fortunately, the <code class="language-plaintext highlighter-rouge">ByteSink</code> interface lets us avoid such problems. We can split
+the bytes into chunks over multiple <code class="language-plaintext highlighter-rouge">ByteSink.write()</code> calls:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">const</span> <span class="n">CHUNK_SIZE</span><span class="p">:</span> <span class="nb">usize</span> <span class="o">=</span> <span class="mi">8192</span><span class="p">;</span>
+
+<span class="cd">/// Writes all of `bytes` to `sink` in chunks of size `CHUNK_SIZE`.</span>
+<span class="k">async</span> <span class="k">fn</span> <span class="nf">write_bytes_chunked</span><span class="p">(</span>
+    <span class="k">mut</span> <span class="n">bytes</span><span class="p">:</span> <span class="o">&amp;</span><span class="p">[</span><span class="nb">u8</span><span class="p">],</span>
+    <span class="n">sink</span><span class="p">:</span> <span class="nn">byte_sink</span><span class="p">::</span><span class="n">Client</span><span class="p">,</span>
+<span class="p">)</span> <span class="k">-&gt;</span> <span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span> <span class="nn">capnp</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span> <span class="p">{</span>
+    <span class="c1">// Loop until all bytes have been written.</span>
+    <span class="k">while</span> <span class="n">bytes</span><span class="nf">.len</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="p">{</span>
+        <span class="c1">// Compute the end index.</span>
+        <span class="k">let</span> <span class="n">end</span> <span class="o">=</span> <span class="nn">usize</span><span class="p">::</span><span class="nf">min</span><span class="p">(</span><span class="n">CHUNK_SIZE</span><span class="p">,</span> <span class="n">bytes</span><span class="nf">.len</span><span class="p">());</span>
+
+        <span class="c1">// Construct the write() request.</span>
+        <span class="k">let</span> <span class="k">mut</span> <span class="n">request</span> <span class="o">=</span> <span class="n">sink</span><span class="nf">.write_request</span><span class="p">();</span>
+        <span class="n">request</span><span class="nf">.get</span><span class="p">()</span><span class="nf">.set_chunk</span><span class="p">(</span><span class="o">&amp;</span><span class="n">bytes</span><span class="p">[</span><span class="o">..</span><span class="n">end</span><span class="p">]);</span>
+
+        <span class="c1">// Send the request and wait for a response.</span>
+        <span class="n">request</span><span class="nf">.send</span><span class="p">()</span><span class="py">.promise</span><span class="k">.await</span><span class="o">?</span><span class="p">;</span>
+
+        <span class="c1">// Update `bytes` to point to the remaining bytes.</span>
+        <span class="n">bytes</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">bytes</span><span class="p">[</span><span class="n">end</span><span class="o">..</span><span class="p">];</span>
+    <span class="p">}</span>
+
+    <span class="c1">// Send `ByteSink.end()`.</span>
+    <span class="n">sink</span><span class="nf">.end_request</span><span class="p">()</span><span class="nf">.send</span><span class="p">()</span><span class="py">.promise</span><span class="k">.await</span><span class="o">?</span><span class="p">;</span>
+
+    <span class="nf">Ok</span><span class="p">(())</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>Now the bytes should transfer much more smoothly,
+but we’ve introduced a new problem: latency.
+After sending each <code class="language-plaintext highlighter-rouge">ByteStream.write()</code> request,
+we’re waiting for the server to send back its response
+before we start the next request.
+That will likely slow things down considerably!</p>
+
+<p>Here’s a naive, bad way to avoid such latency:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cd">/// Like write_bytes_chunked(), but sends all write() requests</span>
+<span class="cd">/// immediately.</span>
+<span class="k">async</span> <span class="k">fn</span> <span class="nf">write_bytes_chunked_in_parallel</span><span class="p">(</span>
+    <span class="k">mut</span> <span class="n">bytes</span><span class="p">:</span> <span class="o">&amp;</span><span class="p">[</span><span class="nb">u8</span><span class="p">],</span>
+    <span class="n">sink</span><span class="p">:</span> <span class="nn">byte_sink</span><span class="p">::</span><span class="n">Client</span><span class="p">,</span>
+<span class="p">)</span> <span class="k">-&gt;</span> <span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span> <span class="nn">capnp</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span> <span class="p">{</span>
+    <span class="c1">// Construct an object that will manage multiple futures</span>
+    <span class="c1">// executing at once.</span>
+    <span class="k">let</span> <span class="k">mut</span> <span class="n">responses</span> <span class="o">=</span> <span class="nn">FuturesOrdered</span><span class="p">::</span><span class="nf">new</span><span class="p">();</span>
+
+    <span class="c1">// Loop until all writes have been enqueued.</span>
+    <span class="k">while</span> <span class="n">bytes</span><span class="nf">.len</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="p">{</span>
+        <span class="k">let</span> <span class="n">end</span> <span class="o">=</span> <span class="nn">usize</span><span class="p">::</span><span class="nf">min</span><span class="p">(</span><span class="n">CHUNK_SIZE</span><span class="p">,</span> <span class="n">bytes</span><span class="nf">.len</span><span class="p">());</span>
+
+        <span class="c1">// Construct the write() request.</span>
+        <span class="k">let</span> <span class="k">mut</span> <span class="n">request</span> <span class="o">=</span> <span class="n">sink</span><span class="nf">.write_request</span><span class="p">();</span>
+        <span class="n">request</span><span class="nf">.get</span><span class="p">()</span><span class="nf">.set_chunk</span><span class="p">(</span><span class="o">&amp;</span><span class="n">bytes</span><span class="p">[</span><span class="o">..</span><span class="n">end</span><span class="p">]);</span>
+
+        <span class="c1">// Send the write() request and collect its response</span>
+        <span class="c1">// future (but don't wait on it yet).</span>
+        <span class="n">responses</span><span class="nf">.push_back</span><span class="p">(</span><span class="n">request</span><span class="nf">.send</span><span class="p">()</span><span class="py">.promise</span><span class="p">);</span>
+
+        <span class="n">bytes</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">bytes</span><span class="p">[</span><span class="n">end</span><span class="o">..</span><span class="p">];</span>
+    <span class="p">}</span>
+    <span class="c1">// Wait for all of the responses.</span>
+    <span class="k">while</span> <span class="k">let</span> <span class="nf">Some</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">=</span> <span class="n">responses</span><span class="nf">.next</span><span class="p">()</span><span class="k">.await</span> <span class="p">{</span>
+        <span class="n">x</span><span class="o">?</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="c1">// Send `ByteSink.end()`.</span>
+    <span class="n">sink</span><span class="nf">.end_request</span><span class="p">()</span><span class="nf">.send</span><span class="p">()</span><span class="py">.promise</span><span class="k">.await</span><span class="o">?</span><span class="p">;</span>
+
+    <span class="nf">Ok</span><span class="p">(())</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>The problem is that, because we immediately send all the requests,
+now we are back to causing memory spikes and congestion,
+even if each individual message is small.</p>
+
+<p>We need to add some way to limit the number of in-flight requests.
+That’s going to make the code significantly more complicated!
+Perhaps you’d like to try it as an exercise?</p>
+
+<p>The good news is that capnproto-rust can now automatically
+perform such bookkeeping, and our code can remain simple.
+To enable the new functionality, we define our
+method with the <code class="language-plaintext highlighter-rouge">stream</code> keyword:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>interface StreamingByteSink {
+   write @0 (chunk :Data) -&gt; stream;
+   # Writes a chunk of bytes.
+
+   end @1 ();
+   # Indicates that no more chunks will be written.
+}
+</code></pre></div></div>
+
+<p>Now we can write our code in the following direct style:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
+<span class="cd">/// Like write_bytes_chunked(), but the library</span>
+<span class="cd">/// automatically handles backpressure.</span>
+<span class="k">async</span> <span class="k">fn</span> <span class="nf">write_bytes_streaming</span><span class="p">(</span>
+    <span class="k">mut</span> <span class="n">bytes</span><span class="p">:</span> <span class="o">&amp;</span><span class="p">[</span><span class="nb">u8</span><span class="p">],</span>
+    <span class="n">sink</span><span class="p">:</span> <span class="nn">streaming_byte_sink</span><span class="p">::</span><span class="n">Client</span><span class="p">,</span>
+<span class="p">)</span> <span class="k">-&gt;</span> <span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span> <span class="nn">capnp</span><span class="p">::</span><span class="n">Error</span><span class="o">&gt;</span> <span class="p">{</span>
+    <span class="c1">// Loop until all bytes have been enqueued.</span>
+    <span class="k">while</span> <span class="n">bytes</span><span class="nf">.len</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="p">{</span>
+        <span class="k">let</span> <span class="n">end</span> <span class="o">=</span> <span class="nn">usize</span><span class="p">::</span><span class="nf">min</span><span class="p">(</span><span class="n">CHUNK_SIZE</span><span class="p">,</span> <span class="n">bytes</span><span class="nf">.len</span><span class="p">());</span>
+
+        <span class="c1">// Construct the write() request.</span>
+        <span class="k">let</span> <span class="k">mut</span> <span class="n">request</span> <span class="o">=</span> <span class="n">sink</span><span class="nf">.write_request</span><span class="p">();</span>
+        <span class="n">request</span><span class="nf">.get</span><span class="p">()</span><span class="nf">.set_chunk</span><span class="p">(</span><span class="o">&amp;</span><span class="n">bytes</span><span class="p">[</span><span class="o">..</span><span class="n">end</span><span class="p">]);</span>
+
+        <span class="c1">// Send the request and wait until the RPC system determines that</span>
+        <span class="c1">// we are clear to send another chunk.</span>
+        <span class="n">request</span><span class="nf">.send</span><span class="p">()</span><span class="k">.await</span><span class="o">?</span><span class="p">;</span>
+
+        <span class="n">bytes</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">bytes</span><span class="p">[</span><span class="n">end</span><span class="o">..</span><span class="p">];</span>
+    <span class="p">}</span>
+
+    <span class="c1">// The end() method is not streaming. It does not return until all of</span>
+    <span class="c1">// the streaming calls have completed. If any streaming call triggered</span>
+    <span class="c1">// an error, that error will be returned here.</span>
+    <span class="n">sink</span><span class="nf">.end_request</span><span class="p">()</span><span class="nf">.send</span><span class="p">()</span><span class="py">.promise</span><span class="k">.await</span><span class="o">?</span><span class="p">;</span>
+
+    <span class="nf">Ok</span><span class="p">(())</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>Behind the scenes, capnproto-rust maintains a limit on how many bytes
+are in flight for this object at any given time.
+Currently it uses a fixed value
+that can be configured via
+<a href="https://github.com/capnproto/capnproto-rust/blob/1722f1baadd56f7f34d1dc2ee2ee1d5da12838db/capnp-rpc/src/twoparty.rs#L282-L284"><code class="language-plaintext highlighter-rouge">twoparty::VatNetwork::set_window_size()</code></a>.
+In the future, the library could potentially add sophisticated dynamic
+flow control to optimize throughput, without requiring
+any code change from users.</p>
+
+<h2 id="implementing-streaming-methods">implementing streaming methods</h2>
+
+<p>To create an instance of a <code class="language-plaintext highlighter-rouge">ByteSinkStreaming</code> object in Rust,
+we need to implement the <code class="language-plaintext highlighter-rouge">byte_sink_streaming::Server</code> trait:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">impl</span> <span class="nn">byte_sink_streaming</span><span class="p">::</span><span class="n">Server</span> <span class="k">for</span> <span class="n">ByteStreamImpl</span> <span class="p">{</span>
+    <span class="k">fn</span> <span class="nf">write</span><span class="p">(</span>
+        <span class="o">&amp;</span><span class="k">mut</span> <span class="k">self</span><span class="p">,</span>
+        <span class="n">params</span><span class="p">:</span> <span class="nn">byte_sink_streaming</span><span class="p">::</span><span class="n">WriteParams</span>
+    <span class="p">)</span> <span class="k">-&gt;</span> <span class="n">Promise</span><span class="o">&lt;</span><span class="p">(),</span> <span class="n">Error</span><span class="o">&gt;</span> <span class="p">{</span>
+       <span class="nd">todo!</span><span class="p">()</span>
+    <span class="p">}</span>
+
+    <span class="k">fn</span> <span class="nf">end</span><span class="p">(</span>
+        <span class="o">&amp;</span><span class="k">mut</span> <span class="k">self</span><span class="p">,</span>
+        <span class="n">params</span><span class="p">:</span> <span class="nn">byte_sink_streaming</span><span class="p">::</span><span class="n">EndParams</span><span class="p">,</span>
+        <span class="n">results</span><span class="p">:</span> <span class="nn">byte_sink_streaming</span><span class="p">::</span><span class="n">EndResults</span><span class="p">,</span>
+    <span class="p">)</span> <span class="k">-&gt;</span> <span class="n">Promise</span><span class="o">&lt;</span><span class="p">(),</span> <span class="n">Error</span><span class="o">&gt;</span> <span class="p">{</span>
+        <span class="nd">todo!</span><span class="p">()</span>
+    <span class="p">}</span>
+
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>Because it was declared with <code class="language-plaintext highlighter-rouge">-&gt; stream</code>, the <code class="language-plaintext highlighter-rouge">write()</code> method
+does not have a <code class="language-plaintext highlighter-rouge">Results</code> parameter,
+unlike <code class="language-plaintext highlighter-rouge">end()</code> and other non-streaming methods.
+Streaming methods never have any values to return.</p>
+
+<h3 id="difference-from-capnproto-c">difference from capnproto-c++</h3>
+
+<p><a href="https://github.com/capnproto/capnproto/pull/825">In the C++ implementation</a>,
+streaming method calls are delivered one-by-one
+to the implementing object, with no overlap.
+This is intended “as a convenience” and to
+make it easier to interface with <code class="language-plaintext highlighter-rouge">kj::AsyncOutputStream</code> objects.
+In Rust, async I/O objects are rather different
+and enjoy good type system support for preventing misuse,
+so I opted not to implement the one-by-one delivery guarantee
+in capnproto-rust.</p>
+
+<h2 id="example">example</h2>
+
+<p>For a working example, see
+the <a href="https://github.com/capnproto/capnproto-rust/tree/1722f1baadd56f7f34d1dc2ee2ee1d5da12838db/capnp-rpc/examples/streaming">capnp-rpc/examples/streaming</a>
+directory.</p>
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+
+<div>
+ <a href="https://www.github.com/capnproto/capnproto-rust">
+   capnproto-rust on github
+ </a>
+</div>
+
+<div>
+ <a href="/capnproto-rust/index.html">
+   more posts
+ </a>
+</div>
+
+<a href="/capnproto-rust/feed.xml">
+<img src="/capnproto-rust/assets/rss.png"
+     width="14"/>
+</a>
+
+
+</body>
