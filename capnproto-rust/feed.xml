@@ -95,7 +95,7 @@ the bytes into chunks over multiple &lt;code class=&quot;language-plaintext high
 
 &lt;p&gt;Now the bytes should transfer much more smoothly,
 but we’ve introduced a new problem: latency.
-After sending each &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ByteStream.write()&lt;/code&gt; request,
+After sending each &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ByteSink.write()&lt;/code&gt; request,
 we’re waiting for the server to send back its response
 before we start the next request.
 That will likely slow things down considerably!&lt;/p&gt;
@@ -204,10 +204,10 @@ any code change from users.&lt;/p&gt;
 
 &lt;h2 id=&quot;implementing-streaming-methods&quot;&gt;implementing streaming methods&lt;/h2&gt;
 
-&lt;p&gt;To create an instance of a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ByteSinkStreaming&lt;/code&gt; object in Rust,
+&lt;p&gt;To create an instance of a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;StreamingByteSink&lt;/code&gt; object in Rust,
 we need to implement the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;byte_sink_streaming::Server&lt;/code&gt; trait:&lt;/p&gt;
 
-&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;impl&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;byte_sink_streaming&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Server&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;ByteStreamImpl&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;impl&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;byte_sink_streaming&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Server&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;StremaingByteSinkImpl&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
     &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;write&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;
         &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
         &lt;span class=&quot;n&quot;&gt;params&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;byte_sink_streaming&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;WriteParams&lt;/span&gt;

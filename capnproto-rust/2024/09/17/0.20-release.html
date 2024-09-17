@@ -103,7 +103,7 @@ the bytes into chunks over multiple <code class="language-plaintext highlighter-
 
 <p>Now the bytes should transfer much more smoothly,
 but we’ve introduced a new problem: latency.
-After sending each <code class="language-plaintext highlighter-rouge">ByteStream.write()</code> request,
+After sending each <code class="language-plaintext highlighter-rouge">ByteSink.write()</code> request,
 we’re waiting for the server to send back its response
 before we start the next request.
 That will likely slow things down considerably!</p>
@@ -212,10 +212,10 @@ any code change from users.</p>
 
 <h2 id="implementing-streaming-methods">implementing streaming methods</h2>
 
-<p>To create an instance of a <code class="language-plaintext highlighter-rouge">ByteSinkStreaming</code> object in Rust,
+<p>To create an instance of a <code class="language-plaintext highlighter-rouge">StreamingByteSink</code> object in Rust,
 we need to implement the <code class="language-plaintext highlighter-rouge">byte_sink_streaming::Server</code> trait:</p>
 
-<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">impl</span> <span class="nn">byte_sink_streaming</span><span class="p">::</span><span class="n">Server</span> <span class="k">for</span> <span class="n">ByteStreamImpl</span> <span class="p">{</span>
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">impl</span> <span class="nn">byte_sink_streaming</span><span class="p">::</span><span class="n">Server</span> <span class="k">for</span> <span class="n">StremaingByteSinkImpl</span> <span class="p">{</span>
     <span class="k">fn</span> <span class="nf">write</span><span class="p">(</span>
         <span class="o">&amp;</span><span class="k">mut</span> <span class="k">self</span><span class="p">,</span>
         <span class="n">params</span><span class="p">:</span> <span class="nn">byte_sink_streaming</span><span class="p">::</span><span class="n">WriteParams</span>
