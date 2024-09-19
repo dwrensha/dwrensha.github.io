@@ -102,11 +102,13 @@ the bytes into chunks over multiple <code class="language-plaintext highlighter-
 </code></pre></div></div>
 
 <p>Now the bytes should transfer much more smoothly,
-but we’ve introduced a new problem: latency.
+but we’ve potentially introduced a new problem: latency.
 After sending each <code class="language-plaintext highlighter-rouge">ByteSink.write()</code> request,
 we’re waiting for the server to send back its response
 before we start the next request.
-That will likely slow things down considerably!</p>
+Depending on the amount of time it takes for messages
+to travel between the client and server,
+waiting like that could slow things down considerably!</p>
 
 <p>Here’s a naive, bad way to avoid such latency:</p>
 
