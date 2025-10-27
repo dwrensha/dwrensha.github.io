@@ -1,0 +1,144 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<title> 0.22 — async methods </title>
+<meta http-equiv="Content-Type" content="text/html;charset=utf-8" >
+<link rel="stylesheet" href="/capnproto-rust/css/main.css" type="text/css" />
+<link rel="stylesheet" href="/capnproto-rust/css/syntax.css" type="text/css" />
+<link rel="shortcut icon" href="/capnproto-rust/favicon.png">
+</head>
+<body>
+<h1>
+0.22 — async methods
+</h1>
+
+<p>
+27 Oct 2025
+<p>
+
+<p>Today I have published version 0.22.0 of the
+<a href="https://crates.io/crates/capnp">capnp</a>,
+<a href="https://crates.io/crates/capnpc">capnpc</a>,
+<a href="https://crates.io/crates/capnp-futures">capnp-futures</a>,
+and <a href="https://crates.io/crates/capnp-rpc">capnp-rpc</a>,
+crates.</p>
+
+<p>The new release enables idiomatic usage of
+<code class="language-plaintext highlighter-rouge">async</code> and <code class="language-plaintext highlighter-rouge">await</code> in RPC method implementations,
+taking advantage of the
+“<a href="https://rust-lang.github.io/rfcs/3425-return-position-impl-trait-in-traits.html">return position impl Trait in traits</a>”
+feature stabilized in Rust 1.75. The relevant changes landed in pull request
+<a href="https://github.com/capnproto/capnproto-rust/pull/593">#593</a>.
+Thank you <a href="https://github.com/luisholanda">@luisholanda</a> for
+the contribution!</p>
+
+<!-- https://blog.rust-lang.org/2023/12/21/async-fn-rpit-in-traits/ -->
+
+<h2 id="how-it-was-before">how it was before</h2>
+
+<p>Suppose we had a capnp schema file <code class="language-plaintext highlighter-rouge">example.capnp</code> declaring the following interface:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>interface Foo {
+  bar @0 (x :UInt16) -&gt; (y :UInt16);
+}
+</code></pre></div></div>
+
+<p>In previous versions, capnpc-rust would generate a Rust trait with the following signature:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">pub</span> <span class="k">mod</span> <span class="n">foo</span> <span class="p">{</span>
+  <span class="k">trait</span> <span class="n">Server</span> <span class="p">{</span>
+    <span class="k">fn</span> <span class="nf">bar</span><span class="p">(</span><span class="o">&amp;</span><span class="k">mut</span> <span class="k">self</span><span class="p">,</span> <span class="nn">foo</span><span class="p">::</span><span class="n">BarParams</span><span class="p">,</span> <span class="nn">foo</span><span class="p">::</span><span class="n">BarResults</span><span class="p">)</span> <span class="k">-&gt;</span> <span class="n">Promise</span><span class="o">&lt;</span><span class="p">(),</span> <span class="n">Error</span><span class="o">&gt;</span><span class="p">;</span>
+  <span class="p">}</span>
+  <span class="c1">// ...</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>The return type <code class="language-plaintext highlighter-rouge">Promise&lt;(), Error&gt;</code> allowed implementations of the method to
+use asynchronous code, like this:</p>
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nn">Promise</span><span class="p">::</span><span class="nf">from_future</span><span class="p">(</span><span class="k">async</span> <span class="k">move</span> <span class="p">{</span>
+  <span class="c1">// ... do some asynchronous stuff here</span>
+<span class="p">})</span>
+</code></pre></div></div>
+
+<p>However, there were some problems with this setup:</p>
+
+<ol>
+  <li>
+    <p>Rust users accustomed to <code class="language-plaintext highlighter-rouge">async/await</code> <a href="https://github.com/capnproto/capnproto-rust/issues/168">found it annoying</a>
+to need to manually construct a <code class="language-plaintext highlighter-rouge">Promise</code> like this.</p>
+  </li>
+  <li>
+    <p>The <code class="language-plaintext highlighter-rouge">?</code> operator did not work inside such a method body without enabling the unstable <code class="language-plaintext highlighter-rouge">try_trait_v2</code> feature.</p>
+  </li>
+  <li>
+    <p>There was no way to get access to the borrowed <code class="language-plaintext highlighter-rouge">&amp;mut self</code> parameter from within the <code class="language-plaintext highlighter-rouge">async</code> context, because <code class="language-plaintext highlighter-rouge">Promise::from_future()</code> requires that its input be <code class="language-plaintext highlighter-rouge">'static</code>.</p>
+  </li>
+</ol>
+
+<h2 id="the-new-way">the new way</h2>
+
+<p>Starting in version 0.22.0, the generated trait has the following signature:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">pub</span> <span class="k">mod</span> <span class="n">foo</span> <span class="p">{</span>
+  <span class="k">trait</span> <span class="n">Server</span> <span class="p">{</span>
+    <span class="k">fn</span> <span class="nf">bar</span><span class="p">(</span><span class="o">&amp;</span><span class="k">self</span><span class="p">,</span>
+           <span class="nn">foo</span><span class="p">::</span><span class="n">BarParams</span><span class="p">,</span>
+           <span class="nn">foo</span><span class="p">::</span><span class="n">BarResults</span><span class="p">)</span> <span class="k">-&gt;</span> <span class="k">impl</span> <span class="n">Future</span><span class="o">&lt;</span><span class="n">Output</span><span class="o">=</span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span> <span class="n">Error</span><span class="o">&gt;&gt;</span> <span class="o">+</span> <span class="nv">'_</span><span class="p">;</span>
+  <span class="p">}</span>
+  <span class="c1">// ...</span>
+<span class="p">}</span>
+
+</code></pre></div></div>
+
+<p>Now user-provided implementations can use the <code class="language-plaintext highlighter-rouge">async fn</code> syntax like this:</p>
+
+<div class="language-rust highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
+<span class="k">impl</span> <span class="nn">foo</span><span class="p">::</span><span class="n">Server</span> <span class="k">for</span> <span class="n">FooImpl</span> <span class="p">{</span>
+  <span class="k">async</span> <span class="k">fn</span> <span class="nf">bar</span><span class="p">(</span><span class="o">&amp;</span><span class="k">self</span><span class="p">,</span> <span class="nn">foo</span><span class="p">::</span><span class="n">BarParams</span><span class="p">,</span> <span class="nn">foo</span><span class="p">::</span><span class="n">BarResults</span><span class="p">)</span> <span class="k">-&gt;</span> <span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span> <span class="n">Error</span><span class="o">&gt;</span> <span class="p">{</span>
+    <span class="c1">// ... do some asynchronous stuff here, possibly using the `?` operator,</span>
+    <span class="c1">// and possibly using &amp;self after an await point.</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>This solves all three of the problems noted above!</p>
+
+<h2 id="the-price-of-progress">the price of progress</h2>
+
+<p>This is a breaking change. All implementations of RPC traits will need to be
+updated to account for the change in method signature.</p>
+
+<p>In particular, because the <code class="language-plaintext highlighter-rouge">&amp;mut self</code> parameter has changed to
+an immutable <code class="language-plaintext highlighter-rouge">&amp;self</code> parameter, RPC objects may need to add their own
+interior mutability. This can typically be done by wrapping
+data in <code class="language-plaintext highlighter-rouge">Cell&lt;T&gt;</code> or <code class="language-plaintext highlighter-rouge">RefCell&lt;T&gt;</code>.
+<a href="https://github.com/sandstorm-io/collections-app/commit/36bcd3231f935dab9edcfd4eac1aa77879e6991d">This commit to the Sandstorm Collections app</a> is an example of what such an update might look like.</p>
+
+<p>Moreover, getting this all to work required adding some <code class="language-plaintext highlighter-rouge">async/await</code> in
+the generated method dispatch code. Therefore, capnpc-rust no longer
+supports generating code for Rust editions 2015 and 2018.</p>
+
+
+<p class="author">
+  -- posted by <a href="https://github.com/dwrensha">dwrensha</a>
+</p>
+
+<div>
+ <a href="https://www.github.com/capnproto/capnproto-rust">
+   capnproto-rust on github
+ </a>
+</div>
+
+<div>
+ <a href="/capnproto-rust/index.html">
+   more posts
+ </a>
+</div>
+
+<a href="/capnproto-rust/feed.xml">
+<img src="/capnproto-rust/assets/rss.png"
+     width="14"/>
+</a>
+
+
+</body>

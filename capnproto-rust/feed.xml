@@ -7,6 +7,115 @@
                 <atom:link href="http://dwrensha.github.io/capnproto-rust/feed.xml" rel="self" type="application/rss+xml" />
                 
                         <item>
+                                <title>0.22 — async methods</title>
+                                <description>&lt;p&gt;Today I have published version 0.22.0 of the
+&lt;a href=&quot;https://crates.io/crates/capnp&quot;&gt;capnp&lt;/a&gt;,
+&lt;a href=&quot;https://crates.io/crates/capnpc&quot;&gt;capnpc&lt;/a&gt;,
+&lt;a href=&quot;https://crates.io/crates/capnp-futures&quot;&gt;capnp-futures&lt;/a&gt;,
+and &lt;a href=&quot;https://crates.io/crates/capnp-rpc&quot;&gt;capnp-rpc&lt;/a&gt;,
+crates.&lt;/p&gt;
+
+&lt;p&gt;The new release enables idiomatic usage of
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;async&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;await&lt;/code&gt; in RPC method implementations,
+taking advantage of the
+“&lt;a href=&quot;https://rust-lang.github.io/rfcs/3425-return-position-impl-trait-in-traits.html&quot;&gt;return position impl Trait in traits&lt;/a&gt;”
+feature stabilized in Rust 1.75. The relevant changes landed in pull request
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/pull/593&quot;&gt;#593&lt;/a&gt;.
+Thank you &lt;a href=&quot;https://github.com/luisholanda&quot;&gt;@luisholanda&lt;/a&gt; for
+the contribution!&lt;/p&gt;
+
+&lt;!-- https://blog.rust-lang.org/2023/12/21/async-fn-rpit-in-traits/ --&gt;
+
+&lt;h2 id=&quot;how-it-was-before&quot;&gt;how it was before&lt;/h2&gt;
+
+&lt;p&gt;Suppose we had a capnp schema file &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;example.capnp&lt;/code&gt; declaring the following interface:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;interface Foo {
+  bar @0 (x :UInt16) -&amp;gt; (y :UInt16);
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;In previous versions, capnpc-rust would generate a Rust trait with the following signature:&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mod&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;foo&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;trait&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Server&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;bar&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;mut&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;foo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;BarParams&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;foo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;BarResults&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Promise&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(),&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Error&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+  &lt;span class=&quot;c1&quot;&gt;// ...&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;The return type &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Promise&amp;lt;(), Error&amp;gt;&lt;/code&gt; allowed implementations of the method to
+use asynchronous code, like this:&lt;/p&gt;
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nn&quot;&gt;Promise&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;from_future&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;async&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;move&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;c1&quot;&gt;// ... do some asynchronous stuff here&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;})&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;However, there were some problems with this setup:&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;
+    &lt;p&gt;Rust users accustomed to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;async/await&lt;/code&gt; &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/issues/168&quot;&gt;found it annoying&lt;/a&gt;
+to need to manually construct a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Promise&lt;/code&gt; like this.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;?&lt;/code&gt; operator did not work inside such a method body without enabling the unstable &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;try_trait_v2&lt;/code&gt; feature.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;There was no way to get access to the borrowed &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;mut self&lt;/code&gt; parameter from within the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;async&lt;/code&gt; context, because &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Promise::from_future()&lt;/code&gt; requires that its input be &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&apos;static&lt;/code&gt;.&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id=&quot;the-new-way&quot;&gt;the new way&lt;/h2&gt;
+
+&lt;p&gt;Starting in version 0.22.0, the generated trait has the following signature:&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;mod&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;foo&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;trait&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Server&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;bar&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+           &lt;span class=&quot;nn&quot;&gt;foo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;BarParams&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt;
+           &lt;span class=&quot;nn&quot;&gt;foo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;BarResults&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;impl&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Future&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Output&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;Result&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(),&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Error&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;+&lt;/span&gt; &lt;span class=&quot;nv&quot;&gt;&apos;_&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+  &lt;span class=&quot;c1&quot;&gt;// ...&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Now user-provided implementations can use the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;async fn&lt;/code&gt; syntax like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;
+&lt;span class=&quot;k&quot;&gt;impl&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;foo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;Server&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;for&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;FooImpl&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+  &lt;span class=&quot;k&quot;&gt;async&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;bar&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;self&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;foo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;BarParams&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;nn&quot;&gt;foo&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;BarResults&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;Result&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(),&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;Error&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
+    &lt;span class=&quot;c1&quot;&gt;// ... do some asynchronous stuff here, possibly using the `?` operator,&lt;/span&gt;
+    &lt;span class=&quot;c1&quot;&gt;// and possibly using &amp;amp;self after an await point.&lt;/span&gt;
+  &lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;This solves all three of the problems noted above!&lt;/p&gt;
+
+&lt;h2 id=&quot;the-price-of-progress&quot;&gt;the price of progress&lt;/h2&gt;
+
+&lt;p&gt;This is a breaking change. All implementations of RPC traits will need to be
+updated to account for the change in method signature.&lt;/p&gt;
+
+&lt;p&gt;In particular, because the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;mut self&lt;/code&gt; parameter has changed to
+an immutable &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;self&lt;/code&gt; parameter, RPC objects may need to add their own
+interior mutability. This can typically be done by wrapping
+data in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Cell&amp;lt;T&amp;gt;&lt;/code&gt; or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;RefCell&amp;lt;T&amp;gt;&lt;/code&gt;.
+&lt;a href=&quot;https://github.com/sandstorm-io/collections-app/commit/36bcd3231f935dab9edcfd4eac1aa77879e6991d&quot;&gt;This commit to the Sandstorm Collections app&lt;/a&gt; is an example of what such an update might look like.&lt;/p&gt;
+
+&lt;p&gt;Moreover, getting this all to work required adding some &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;async/await&lt;/code&gt; in
+the generated method dispatch code. Therefore, capnpc-rust no longer
+supports generating code for Rust editions 2015 and 2018.&lt;/p&gt;
+</description>
+                                <pubDate>Mon, 27 Oct 2025 00:00:00 -0400</pubDate>
+                                <link>http://dwrensha.github.io/capnproto-rust/2025/10/27/0.22-release.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2025/10/27/0.22-release.html</guid>
+                        </item>
+                
+                        <item>
                                 <title>0.20 — streaming with backpressure</title>
                                 <description>&lt;p&gt;Version 0.20 of &lt;a href=&quot;https://github.com/capnproto/capnproto-rust&quot;&gt;capnproto-rust&lt;/a&gt;
 is now &lt;a href=&quot;https://crates.io/crates/capnp&quot;&gt;available on crates.io&lt;/a&gt;.
@@ -1930,243 +2039,6 @@ $ cargo miri test
                                 <pubDate>Sun, 19 Jan 2020 00:00:00 -0500</pubDate>
                                 <link>http://dwrensha.github.io/capnproto-rust/2020/01/19/new-feature-to-allow-unaligned-buffers.html</link>
                                 <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2020/01/19/new-feature-to-allow-unaligned-buffers.html</guid>
-                        </item>
-                
-                        <item>
-                                <title>unaligned memory access</title>
-                                <description>&lt;p&gt;A core feature of capnproto-rust is its ability to
-read messages directly from memory without copying the data into auxiliary structures.
-Unfortunately, this functionality is a bit tricky to use correctly,
-as can be seen in its primary interface, the
-&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/d1988731887b2bbb0ccb35c68b9292d98f317a48/capnp/src/serialize.rs#L76-L81&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;read_message_from_words()&lt;/code&gt;&lt;/a&gt;
-function, whose input is of type &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;[Word]&lt;/code&gt;.
-In the common case where you want to read from a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;[u8]&lt;/code&gt;,
-you must first call the unsafe function
-&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/d1988731887b2bbb0ccb35c68b9292d98f317a48/capnp/src/lib.rs#L82-L88&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;bytes_to_words()&lt;/code&gt;&lt;/a&gt;
-in order to get a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;[Word]&lt;/code&gt;.
-It is only safe to call this function if you know that your data is
-8-byte aligned &lt;strike&gt;or if you know that your code will only run on processors
-that permit unaligned memory access&lt;/strike&gt; (EDIT: ralfj &lt;a href=&quot;https://www.reddit.com/r/rust/comments/en9fmn/should_capnprotorust_force_users_to_worry_about/fedhjtk/&quot;&gt;informs me&lt;/a&gt; that misaligned loads are never okay.)
-The former condition can be difficult to meet, especially if your memory comes from
-an external library like sqlite or zmq where no alignment guarantees are given&lt;strike&gt;,
-and the latter condition feels like an unfair burden, both in terms of demanding that
-you understand a rather subtle concept, and in terms of limiting where your software can run&lt;/strike&gt;.
-So it’s easy to  understand why someone might shy away from calling &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;bytes_to_words()&lt;/code&gt;
-and, in turn, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;read_message_from_words()&lt;/code&gt;.&lt;/p&gt;
-
-&lt;p&gt;Can we do better? Ideally, capnproto-rust would safely operate directly on input of type &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;[u8]&lt;/code&gt;.
-We can in fact adapt the code to do that, but it comes at a cost: processors that don’t natively
-support unaligned access will need to do some more work every time that capnproto-rust
-loads or stores a multi-byte value.
-To get some idea of what that extra work looks like, let’s examine
-the assembly code emitted by rustc!
-(A better way to quantify the cost would be to perform controlled experiments on actual hardware,
-but that’s a more involved project than I’d like to tackle right now.)&lt;/p&gt;
-
-&lt;p&gt;Below is some code representing a bare-bones simplification of the two approaches to memory access.
-(The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;#[no_std]&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;#[no_mangle]&lt;/code&gt; attributes are to simpify the assembly code.)&lt;/p&gt;
-
-&lt;div class=&quot;language-rust highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;&lt;span class=&quot;nd&quot;&gt;#![no_std]&lt;/span&gt;
-
-&lt;span class=&quot;nd&quot;&gt;#[no_mangle]&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;unsafe&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;direct_load&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;])&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.as_ptr&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;as&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;k&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;))&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;.to_le&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-
-&lt;span class=&quot;nd&quot;&gt;#[no_mangle]&lt;/span&gt;
-&lt;span class=&quot;k&quot;&gt;pub&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;fn&lt;/span&gt; &lt;span class=&quot;nf&quot;&gt;indirect_load&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;:&lt;/span&gt; &lt;span class=&quot;o&quot;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;[&lt;/span&gt;&lt;span class=&quot;nb&quot;&gt;u8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;;&lt;/span&gt; &lt;span class=&quot;mi&quot;&gt;8&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;])&lt;/span&gt; &lt;span class=&quot;k&quot;&gt;-&amp;gt;&lt;/span&gt; &lt;span class=&quot;nb&quot;&gt;u64&lt;/span&gt; &lt;span class=&quot;p&quot;&gt;{&lt;/span&gt;
-    &lt;span class=&quot;nn&quot;&gt;u64&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;::&lt;/span&gt;&lt;span class=&quot;nf&quot;&gt;from_le_bytes&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;*&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;x&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;
-&lt;span class=&quot;p&quot;&gt;}&lt;/span&gt;
-&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
-
-&lt;p&gt;The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;direct_load()&lt;/code&gt; function represents the current state of affairs in capnproto-rust.
-It loads a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;u64&lt;/code&gt; by casting a pointer of type &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;*const u8&lt;/code&gt; to type &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;*const u64&lt;/code&gt; and then deferencing that pointer.
-This is only safe if the input is 8-byte aligned &lt;strike&gt;or if the processor can handle unaligned access&lt;/strike&gt;.
-(EDIT: again, see ralfj’s &lt;a href=&quot;https://www.reddit.com/r/rust/comments/en9fmn/should_capnprotorust_force_users_to_worry_about/fedhjtk/&quot;&gt;reddit comment&lt;/a&gt;.)&lt;/p&gt;
-
-&lt;p&gt;The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;indirect_load()&lt;/code&gt; function represents the safer alternative. We expect this to
-sometimes require more work than &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;direct_load()&lt;/code&gt;, but it has the advantage of
-being easier to use and understand.&lt;/p&gt;
-
-&lt;p&gt;To compare the assembly code generated by these functions, I installed
-a variety of rustc targets using &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;rustup&lt;/code&gt;:&lt;/p&gt;
-
-&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;rustup target add $TARGET
-&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
-
-&lt;p&gt;and then for each target compiled the code with:&lt;/p&gt;
-
-&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;rustc -O --crate-type=lib test.rs --target=$TARGET --emit=asm
-&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
-
-&lt;p&gt;The results, edited to only include the relevant bits of code, are show below.&lt;/p&gt;
-
-&lt;h2 id=&quot;x86_64-unknown-linux-gnu&quot;&gt;x86_64-unknown-linux-gnu&lt;/h2&gt;
-
-&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
-	movq	(%rdi), %rax
-	retq
-
-indirect_load:
-	movq	(%rdi), %rax
-	retq
-&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
-
-&lt;h2 id=&quot;i686-unknown-linux-gnu&quot;&gt;i686-unknown-linux-gnu&lt;/h2&gt;
-
-&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
-	movl	4(%esp), %ecx
-	movl	(%ecx), %eax
-	movl	4(%ecx), %edx
-	retl
-
-indirect_load:
-	movl	4(%esp), %ecx
-	movl	(%ecx), %eax
-	movl	4(%ecx), %edx
-	retl
-&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
-
-&lt;h2 id=&quot;aarch64-unknown-linux-gnu&quot;&gt;aarch64-unknown-linux-gnu&lt;/h2&gt;
-
-&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
-	ldr	x0, [x0]
-	ret
-
-indirect_load:
-	ldr	x0, [x0]
-	ret
-&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
-
-&lt;h2 id=&quot;wasm32-wasi&quot;&gt;wasm32-wasi&lt;/h2&gt;
-
-&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
-	local.get	0
-	i64.load	0
-
-indirect_load:
-	local.get	0
-	i64.load	0:p2align=0
-&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
-
-&lt;h2 id=&quot;armv7-unknown-linux-gnueabi&quot;&gt;armv7-unknown-linux-gnueabi&lt;/h2&gt;
-
-&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
-	ldrd	r0, r1, [r0]
-	bx	lr
-
-indirect_load:
-	ldr	r2, [r0]
-	ldr	r1, [r0, #4]
-	mov	r0, r2
-	bx	lr
-&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
-
-&lt;h2 id=&quot;powerpc-unknown-linux-gnu&quot;&gt;powerpc-unknown-linux-gnu&lt;/h2&gt;
-
-&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
-	li 4, 4
-	lwbrx 5, 3, 4
-	lwbrx 4, 0, 3
-	mr 3, 5
-	blr
-
-indirect_load:
-	li 4, 4
-	lwbrx 5, 3, 4
-	lwbrx 4, 0, 3
-	mr 3, 5
-	blr
-&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
-
-&lt;h2 id=&quot;mips-unknown-linux-gnu&quot;&gt;mips-unknown-linux-gnu&lt;/h2&gt;
-
-&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
-	lw	$1, 4($4)
-	wsbh	$1, $1
-	rotr	$2, $1, 16
-	lw	$1, 0($4)
-	wsbh	$1, $1
-	jr	$ra
-	rotr	$3, $1, 16
-
-indirect_load:
-	lwl	$1, 4($4)
-	lwr	$1, 7($4)
-	wsbh	$1, $1
-	rotr	$2, $1, 16
-	lwl	$1, 0($4)
-	lwr	$1, 3($4)
-	wsbh	$1, $1
-	jr	$ra
-	rotr	$3, $1, 16
-&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
-
-&lt;h2 id=&quot;riscv32i-unknown-none-elf&quot;&gt;riscv32i-unknown-none-elf&lt;/h2&gt;
-
-&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;direct_load:
-	addi	sp, sp, -16
-	sw	ra, 12(sp)
-	sw	s0, 8(sp)
-	addi	s0, sp, 16
-	lw	a2, 0(a0)
-	lw	a1, 4(a0)
-	mv	a0, a2
-	lw	s0, 8(sp)
-	lw	ra, 12(sp)
-	addi	sp, sp, 16
-	ret
-
-indirect_load:
-	addi	sp, sp, -16
-	sw	ra, 12(sp)
-	sw	s0, 8(sp)
-	addi	s0, sp, 16
-	lbu	a1, 1(a0)
-	slli	a1, a1, 8
-	lbu	a2, 0(a0)
-	or	a1, a1, a2
-	lbu	a2, 3(a0)
-	slli	a2, a2, 8
-	lbu	a3, 2(a0)
-	or	a2, a2, a3
-	slli	a2, a2, 16
-	or	a2, a2, a1
-	lbu	a1, 5(a0)
-	slli	a1, a1, 8
-	lbu	a3, 4(a0)
-	or	a1, a1, a3
-	lbu	a3, 6(a0)
-	lbu	a0, 7(a0)
-	slli	a0, a0, 8
-	or	a0, a0, a3
-	slli	a0, a0, 16
-	or	a1, a0, a1
-	mv	a0, a2
-	lw	s0, 8(sp)
-	lw	ra, 12(sp)
-	addi	sp, sp, 16
-	ret
-&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
-
-&lt;h1 id=&quot;conclusions&quot;&gt;Conclusions&lt;/h1&gt;
-
-&lt;p&gt;As expected, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;direct_load()&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;indirect_load()&lt;/code&gt; generate the same
-assembly code for many targets. These are presumably exactly the targets that support
-unaligned memory access. On targets where different instructions were generated
-for the two functions, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;indirect_load()&lt;/code&gt; typically requires somewhere between 2x and 3x the
-number of instructions of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;direct_load()&lt;/code&gt;. Is that an acceptable cost? How much of an
-impact would it have in the context of a complete real-world program? I don’t know!
-I’m inclined to believe that the usability benefits of the
-&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;indirect_load()&lt;/code&gt; approach outweigh its performance
-cost, especially since that cost is probably zero or negligible on the most commonly used targets,
-but maybe that’s not true?
-I encourage any readers of this post who have thoughts on the matter to comment
-on this &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/issues/101&quot;&gt;github issue&lt;/a&gt;.&lt;/p&gt;
-</description>
-                                <pubDate>Sat, 11 Jan 2020 00:00:00 -0500</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2020/01/11/unaligned-memory-access.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2020/01/11/unaligned-memory-access.html</guid>
                         </item>
                 
         </channel>
