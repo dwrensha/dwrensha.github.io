@@ -33,7 +33,7 @@ In particular, it enables a
 &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/issues/87&quot;&gt;long-desired feature&lt;/a&gt;
 in a natural way.&lt;/p&gt;
 
-&lt;h2 id=&quot;how-to-update-your-code&quot;&gt;how to update your code&lt;/h2&gt;
+&lt;h2 id=&quot;updating-your-code&quot;&gt;updating your code&lt;/h2&gt;
 
 &lt;p&gt;This is, unfortunately, again a breaking change.&lt;/p&gt;
 
