@@ -7,6 +7,51 @@
                 <atom:link href="http://dwrensha.github.io/capnproto-rust/feed.xml" rel="self" type="application/rss+xml" />
                 
                         <item>
+                                <title>0.23 — Rc&amp;lt;Self&amp;gt; in RPC methods</title>
+                                <description>&lt;p&gt;Today I have published version 0.23 of
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust&quot;&gt;capnproto-rust&lt;/a&gt;
+on &lt;a href=&quot;https://crates.io/crates/capnp&quot;&gt;crates.io&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;Since it was only &lt;a href=&quot;/capnproto-rust/2025/10/27/0.22-release.html&quot;&gt;yesterday&lt;/a&gt;
+that I published version 0.22, you may be wondering why
+I’m bumping the version number again so soon.&lt;/p&gt;
+
+&lt;p&gt;The answer is that &lt;a href=&quot;https://github.com/nivereno&quot;&gt;@nivereno&lt;/a&gt; made
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/issues/577#issuecomment-3454365512&quot;&gt;a suggestion&lt;/a&gt;
+that was too good to ignore.&lt;/p&gt;
+
+&lt;p&gt;In 0.22, RPC methods got a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;amp;self&lt;/code&gt; parameter, but to make that work,
+we needed to add some complicated logic in the generated code,
+including some async/await that broke compatiblity with older Rust editions.&lt;/p&gt;
+
+&lt;p&gt;In 0.23, RPC methods instead get a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;self: Rc&amp;lt;Self&amp;gt;&lt;/code&gt; parameter. That
+ends up making the logic significantly simpler and lets us restore
+compabitibility with older Rust editions.&lt;/p&gt;
+
+&lt;p&gt;Moreover, the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;self: Rc&amp;lt;Self&amp;gt;&lt;/code&gt; parameter is generally more useful.
+In particular, it enables a
+&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/issues/87&quot;&gt;long-desired feature&lt;/a&gt;
+in a natural way.&lt;/p&gt;
+
+&lt;h2 id=&quot;how-to-update-your-code&quot;&gt;how to update your code&lt;/h2&gt;
+
+&lt;p&gt;This is, unfortunately, again a breaking change.&lt;/p&gt;
+
+&lt;p&gt;If you’ve already updated your code to 0.22, then you should just
+need to update your RPC method signatures. Because &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Rc&amp;lt;T&amp;gt;&lt;/code&gt; implements
+&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Deref&amp;lt;Target=T&amp;gt;&lt;/code&gt;, code in method bodies should for the most part not
+need to be updated.&lt;/p&gt;
+
+&lt;p&gt;If you have not updated to 0.22 yet, I recommend skipping that version
+and going straight from 0.21 to 0.23.&lt;/p&gt;
+
+</description>
+                                <pubDate>Tue, 28 Oct 2025 00:00:00 -0400</pubDate>
+                                <link>http://dwrensha.github.io/capnproto-rust/2025/10/28/0.23-release.html</link>
+                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2025/10/28/0.23-release.html</guid>
+                        </item>
+                
+                        <item>
                                 <title>0.22 — async methods</title>
                                 <description>&lt;p&gt;Today I have published version 0.22.0 of the
 &lt;a href=&quot;https://crates.io/crates/capnp&quot;&gt;capnp&lt;/a&gt;,
@@ -109,6 +154,10 @@ data in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Cell&
 &lt;p&gt;Moreover, getting this all to work required adding some &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;async/await&lt;/code&gt; in
 the generated method dispatch code. Therefore, capnpc-rust no longer
 supports generating code for Rust editions 2015 and 2018.&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;Edit&lt;/strong&gt;: &lt;a href=&quot;/capnproto-rust/2025/10/28/0.23-release.html&quot;&gt;capnproto-rust version 0.23&lt;/a&gt;
+adjusted the method type signature
+described above and restored support for Rust editions 2015 and 2015.&lt;/p&gt;
 </description>
                                 <pubDate>Mon, 27 Oct 2025 00:00:00 -0400</pubDate>
                                 <link>http://dwrensha.github.io/capnproto-rust/2025/10/27/0.22-release.html</link>
@@ -1961,84 +2010,6 @@ design space.&lt;/p&gt;
                                 <pubDate>Sat, 06 Jun 2020 00:00:00 -0400</pubDate>
                                 <link>http://dwrensha.github.io/capnproto-rust/2020/06/06/no-std-support.html</link>
                                 <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2020/06/06/no-std-support.html</guid>
-                        </item>
-                
-                        <item>
-                                <title>new feature to allow unaligned buffers</title>
-                                <description>&lt;p&gt;&lt;a href=&quot;/capnproto-rust/2020/01/11/unaligned-memory-access.html&quot;&gt;Last week&lt;/a&gt; I wrote about
-how capnproto-rust might relax its memory alignment requirements
-and what the performance cost of that might look like.
-The &lt;a href=&quot;https://www.reddit.com/r/rust/comments/en9fmn/should_capnprotorust_force_users_to_worry_about/&quot;&gt;ensuing discussion&lt;/a&gt;
-taught me that memory alignment issues can be thornier than I had thought,
-and it strengthened my belief that capnproto-rust users ought be shielded
-from such issues. Since then, working with the helpful feedback
-of many people, I have implemented what I consider to be a satisfactory resolution to the problem.
-Today I’m releasing it as part of capnproto-rust version 0.12.
-The new version not only provides a safe interface for unaligned memory, but also maintains high performance
-for aligned memory.&lt;/p&gt;
-
-&lt;h2 id=&quot;new-feature-flag&quot;&gt;New Feature Flag&lt;/h2&gt;
-&lt;p&gt;Cargo supports a
-&lt;a href=&quot;https://doc.rust-lang.org/cargo/reference/manifest.html#the-features-section&quot;&gt;feature-flags&lt;/a&gt;
-mechanism, whereby a crate can declare parts of its functionality to be optional, with enablement or disablement
-happening at compile time.&lt;/p&gt;
-
-&lt;p&gt;As of version 0.12, the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp&lt;/code&gt; crate has a new
-&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/capnp/Cargo.toml#L30-L32&quot;&gt;feature flag called &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;unaligned&lt;/code&gt;&lt;/a&gt;.
-When &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; is enabled, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp&lt;/code&gt; makes no assumptions about the alignment of its data.
-In particular, it can read a message in place from any array of bytes via
-&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/capnp/src/serialize.rs#L57-L65&quot;&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;read_message_from_flat_slice()&lt;/code&gt;&lt;/a&gt;.&lt;/p&gt;
-
-&lt;p&gt;On the flip side, when &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; is &lt;em&gt;not&lt;/em&gt; enabled, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp&lt;/code&gt; requires that message segments are 8-byte aligned,
-&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/capnp/src/private/arena.rs#L92-L100&quot;&gt;returning an error&lt;/a&gt;
-if it detects that’s not the case.
-The 8-byte alignment is then used whenever
-&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;capnp&lt;/code&gt; loads or stores a primitive value in a message.&lt;/p&gt;
-
-&lt;p&gt;With the new interface, there is no longer a need for the problematic &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;unsafe fn Word::bytes_to_words()&lt;/code&gt;,
-so that method no longer exists.&lt;/p&gt;
-
-&lt;h2 id=&quot;performance&quot;&gt;Performance&lt;/h2&gt;
-
-&lt;p&gt;The downside of enabling the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; feature is that some operations require
-more instructions on certain compilation targets.
-To better understand the performance cost,
-I ran capnproto-rust’s
-&lt;a href=&quot;https://github.com/capnproto/capnproto-rust/tree/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/benchmark&quot;&gt;benchmark suite&lt;/a&gt;
-on three different computers: my laptop (x86_64), an EC2 ARM64 instance (aarch64), and a Raspberry Pi Zero (armv6).
-I compared three different capnproto-rust versions: 0.11, 0.12, and 0.12 with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;unaligned&lt;/code&gt;.&lt;/p&gt;
-
-&lt;p&gt;As expected, on all of the computers
-the 0.12 version without the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; feature performed about the same version 0.11
-(within measurement noise).
-When I enabled the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; feature, the only computer where there
-was a noticeable performance impact was the Raspberry Pi,
-where the benchmarks slowed down between 10 and 20 percent.
-This also was within my expectations, though I had been hoping
-it would be lower. (If the performance impact had been negligible,
-I would likely not have bothered to make &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;unaligned&lt;/code&gt; an optional feature; instead
-I would have made it the &lt;em&gt;only&lt;/em&gt; supported mode.)&lt;/p&gt;
-
-&lt;h2 id=&quot;validation&quot;&gt;Validation&lt;/h2&gt;
-
-&lt;p&gt;Following &lt;a href=&quot;https://www.reddit.com/r/rust/comments/en9fmn/should_capnprotorust_force_users_to_worry_about/fedr67j/&quot;&gt;ralfj’s suggestion&lt;/a&gt;,
-I also performed some testing with &lt;a href=&quot;https://github.com/rust-lang/miri&quot;&gt;miri&lt;/a&gt;
-to increase my confidence that there is no lurking undefined behavior.
-I added &lt;a href=&quot;https://github.com/capnproto/capnproto-rust/blob/9fa83b89eebb10aba6a1181bb7e4f9a4fad916f6/capnp/src/private/layout_test.rs#L24&quot;&gt;some tests&lt;/a&gt;
-that specifically force 1-byte alignment.&lt;/p&gt;
-
-&lt;p&gt;I was pleasantly surprised to learn how easy it is to run miri these days:&lt;/p&gt;
-
-&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;$ rustup component add miri
-$ cargo miri test
-&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
-
-&lt;p&gt;I recommend that you try this on your own projects!&lt;/p&gt;
-
-</description>
-                                <pubDate>Sun, 19 Jan 2020 00:00:00 -0500</pubDate>
-                                <link>http://dwrensha.github.io/capnproto-rust/2020/01/19/new-feature-to-allow-unaligned-buffers.html</link>
-                                <guid isPermaLink="true">http://dwrensha.github.io/capnproto-rust/2020/01/19/new-feature-to-allow-unaligned-buffers.html</guid>
                         </item>
                 
         </channel>
